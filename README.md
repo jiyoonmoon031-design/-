@@ -84,6 +84,8 @@ farm-guardian/
 ├── data/            # 데이터셋 메타데이터 / 전처리 스크립트
 ├── docs/            # 프로젝트 문서
 └── README.md
+```
+
 
 ## 팀 정보
 
