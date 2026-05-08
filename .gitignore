@@ -1,0 +1,53 @@
+# =========================
+# Python / FastAPI
+# =========================
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+.env
+venv/
+.env.*
+
+# pytest / mypy
+.pytest_cache/
+.mypy_cache/
+
+# =========================
+# Flutter / Dart
+# =========================
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.packages
+
+build/
+
+# =========================
+# Android / iOS
+# =========================
+android/.gradle/
+android/app/debug/
+android/app/profile/
+android/app/release/
+
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# =========================
+# VSCode / IDE
+# =========================
+.vscode/
+.idea/
+
+# =========================
+# OS
+# =========================
+.DS_Store
+Thumbs.db
+
+backend/uploads/
+backend/static/uploads/
