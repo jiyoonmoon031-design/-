@@ -122,6 +122,9 @@ class DiagnosisResponse(BaseModel):
     retake_recommended_flag: bool
     gradcam_path: Optional[str]
     detections: List[DetectionBoxResponse]
+    original_image_path: Optional[str] = None
+    image_width: Optional[int] = None
+    image_height: Optional[int] = None
 
 class DiagnosisUploadResponse(BaseModel):
     success: bool

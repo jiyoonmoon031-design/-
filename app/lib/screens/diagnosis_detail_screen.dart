@@ -14,6 +14,9 @@ class DiagnosisDetailScreen extends StatefulWidget {
 }
 
 class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
+  static const String baseUrl = 'http://10.0.2.2:8000';
+  static const Color mainGreen = Color(0xFF6FAF7D);
+
   Map<String, dynamic>? detailData;
   bool isLoading = true;
   String message = '';
@@ -99,6 +102,10 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
         return '미조치';
       case 'COMPLETED':
         return '조치 완료';
+      case 'HOLD':
+        return '보류';
+      case 'REMIND_LATER':
+        return '나중에 알림';
       default:
         return value ?? '-';
     }
@@ -110,6 +117,10 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
         return Colors.green;
       case 'PENDING':
         return Colors.orange;
+      case 'HOLD':
+        return Colors.blueGrey;
+      case 'REMIND_LATER':
+        return Colors.purple;
       default:
         return Colors.grey;
     }
@@ -138,51 +149,93 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
     }
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 17,
-        fontWeight: FontWeight.bold,
+  String? _imageUrl() {
+    final path = detailData?['original_image_path'];
+    if (path == null) return null;
+
+    final pathText = path.toString().replaceAll('\\', '/');
+
+    if (pathText.startsWith('http')) {
+      return pathText;
+    }
+
+    return '$baseUrl/$pathText';
+  }
+
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(26),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.07),
+          blurRadius: 10,
+          offset: const Offset(0, 3),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildChip({
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+        ),
       ),
     );
   }
 
-  Widget _buildInfoTile({
-    required String label,
-    required String value,
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required Widget child,
   }) {
     return Container(
-      margin: const EdgeInsets.only(bottom: 10),
-      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Row(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: _cardDecoration(),
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SizedBox(
-            width: 92,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 13,
-                color: Colors.black54,
-                fontWeight: FontWeight.w600,
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: mainGreen.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: mainGreen,
+                  size: 24,
+                ),
               ),
-            ),
-          ),
-          Expanded(
-            child: Text(
-              value,
-              style: const TextStyle(
-                fontSize: 14,
-                color: Colors.black87,
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
-            ),
+            ],
           ),
+          const SizedBox(height: 16),
+          child,
         ],
       ),
     );
@@ -196,94 +249,58 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
 
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.green.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.shade100),
-      ),
+      padding: const EdgeInsets.all(20),
+      decoration: _cardDecoration(),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text(
-            '진단 요약',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: mainGreen.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.eco_outlined,
+                  color: mainGreen,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Text(
+                  '진단 상세 요약',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 18),
           Wrap(
             spacing: 10,
             runSpacing: 10,
             children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.blueGrey.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Text(
-                  _hasDiseaseLabel(hasDisease),
-                  style: const TextStyle(
-                    color: Colors.blueGrey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              _buildChip(
+                text: _hasDiseaseLabel(hasDisease),
+                color: Colors.blueGrey,
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: _severityColor(severity).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Text(
-                  '심각도: ${_severityLabel(severity)}',
-                  style: TextStyle(
-                    color: _severityColor(severity),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              _buildChip(
+                text: '심각도: ${_severityLabel(severity)}',
+                color: _severityColor(severity),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: _actionStatusColor(actionStatus).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Text(
-                  '상태: ${_actionStatusLabel(actionStatus)}',
-                  style: TextStyle(
-                    color: _actionStatusColor(actionStatus),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              _buildChip(
+                text: '상태: ${_actionStatusLabel(actionStatus)}',
+                color: _actionStatusColor(actionStatus),
               ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Text(
-                  '신뢰도: ${_formatConfidence(confidence)}',
-                  style: const TextStyle(
-                    color: Colors.purple,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+              _buildChip(
+                text: '신뢰도: ${_formatConfidence(confidence)}',
+                color: Colors.purple,
               ),
             ],
           ),
@@ -292,66 +309,238 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
     );
   }
 
-  Widget _buildDetectionSection() {
+  Widget _buildInfoTile({
+    required String label,
+    required String value,
+  }) {
+    return Container(
+      margin: const EdgeInsets.only(bottom: 10),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 92,
+            child: Text(
+              label,
+              style: const TextStyle(
+                fontSize: 13,
+                color: Colors.black54,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Text(
+              value,
+              style: const TextStyle(
+                fontSize: 14,
+                color: Colors.black87,
+                height: 1.35,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildImageWithBoundingBoxes() {
+    final imageUrl = _imageUrl();
     final detections = (detailData?['detections'] as List?) ?? [];
 
-    if (detections.isEmpty) {
+    if (imageUrl == null) {
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.grey.shade200),
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.red.shade200),
         ),
         child: const Text(
-          '검출된 Bounding Box 정보가 없습니다.',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.black54,
-          ),
+          '이미지 경로가 없습니다.',
+          style: TextStyle(color: Colors.red),
         ),
       );
     }
 
-    return Column(
-      children: detections.asMap().entries.map((entry) {
-        final index = entry.key + 1;
-        final det = entry.value;
+    final originalWidth =
+        (detailData?['image_width'] as num?)?.toDouble() ?? 640;
+    final originalHeight =
+        (detailData?['image_height'] as num?)?.toDouble() ?? 640;
 
-        return Container(
-          width: double.infinity,
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Text(
-            '영역 $index: (${det['bbox_xmin']}, ${det['bbox_ymin']}) ~ (${det['bbox_xmax']}, ${det['bbox_ymax']})',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.black87,
-              height: 1.4,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final displayWidth = constraints.maxWidth;
+            final displayHeight =
+                displayWidth * (originalHeight / originalWidth);
+
+            final scaleX = displayWidth / originalWidth;
+            final scaleY = displayHeight / originalHeight;
+
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: SizedBox(
+                width: displayWidth,
+                height: displayHeight,
+                child: Stack(
+                  children: [
+                    Image.network(
+                      imageUrl,
+                      width: displayWidth,
+                      height: displayHeight,
+                      fit: BoxFit.fill,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey.shade100,
+                          alignment: Alignment.center,
+                          padding: const EdgeInsets.all(16),
+                          child: const Text(
+                            '이미지를 불러오지 못했습니다.',
+                            textAlign: TextAlign.center,
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        );
+                      },
+                    ),
+                    ...detections.map((det) {
+                      final x1 = (det['bbox_xmin'] as num?)?.toDouble() ?? 0;
+                      final y1 = (det['bbox_ymin'] as num?)?.toDouble() ?? 0;
+                      final x2 = (det['bbox_xmax'] as num?)?.toDouble() ?? 0;
+                      final y2 = (det['bbox_ymax'] as num?)?.toDouble() ?? 0;
+
+                      return Positioned(
+                        left: x1 * scaleX,
+                        top: y1 * scaleY,
+                        width: (x2 - x1) * scaleX,
+                        height: (y2 - y1) * scaleY,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.red,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        if (detections.isEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Text(
+              '탐지된 병변 위치가 없습니다. 분류 결과는 확인되었지만 bbox는 검출되지 않았습니다.',
+              style: TextStyle(
+                color: Colors.orange.shade900,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
           ),
-        );
-      }).toList(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRecommendationText() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Text(
+        '${detailData?['recommendation_text'] ?? '추천 조치 정보가 없습니다.'}',
+        style: const TextStyle(
+          fontSize: 14,
+          height: 1.55,
+          color: Colors.black87,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGradcamPath() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Text(
+        '${detailData?['gradcam_path'] ?? '없음'}',
+        style: const TextStyle(
+          fontSize: 13,
+          color: Colors.black54,
+          height: 1.4,
+        ),
+      ),
     );
   }
 
   Widget _buildErrorState() {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Text(
-          message.isNotEmpty ? message : '상세 정보를 불러올 수 없습니다.',
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 15,
-            color: Colors.black54,
+    return Container(
+      color: Colors.grey.shade100,
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(22),
+            decoration: _cardDecoration(),
+            child: Text(
+              message.isNotEmpty ? message : '상세 정보를 불러올 수 없습니다.',
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 15,
+                color: Colors.black54,
+                height: 1.4,
+              ),
+            ),
           ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildLoadingState() {
+    return Scaffold(
+      backgroundColor: Colors.grey.shade100,
+      appBar: AppBar(
+        title: const Text('진단 상세'),
+        centerTitle: true,
+        backgroundColor: Colors.grey.shade100,
+        foregroundColor: Colors.black87,
+        elevation: 0,
+      ),
+      body: const Center(
+        child: CircularProgressIndicator(
+          color: mainGreen,
         ),
       ),
     );
@@ -360,122 +549,104 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
   @override
   Widget build(BuildContext context) {
     if (isLoading) {
-      return Scaffold(
-        appBar: AppBar(
-          title: const Text('진단 상세'),
-          centerTitle: true,
-        ),
-        body: const Center(
-          child: CircularProgressIndicator(),
-        ),
-      );
+      return _buildLoadingState();
     }
 
     if (detailData == null) {
       return Scaffold(
+        backgroundColor: Colors.grey.shade100,
         appBar: AppBar(
           title: const Text('진단 상세'),
           centerTitle: true,
+          backgroundColor: Colors.grey.shade100,
+          foregroundColor: Colors.black87,
+          elevation: 0,
         ),
         body: _buildErrorState(),
       );
     }
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         title: const Text('진단 상세'),
         centerTitle: true,
+        backgroundColor: Colors.grey.shade100,
+        foregroundColor: Colors.black87,
+        elevation: 0,
       ),
       body: SafeArea(
         child: RefreshIndicator(
           onRefresh: loadDetail,
+          color: mainGreen,
           child: ListView(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(18),
             children: [
               _buildSummaryCard(),
+              const SizedBox(height: 16),
+
+              _buildSectionCard(
+                title: '병변 위치 이미지',
+                icon: Icons.crop_free_outlined,
+                child: _buildImageWithBoundingBoxes(),
+              ),
+              const SizedBox(height: 16),
+
+              _buildSectionCard(
+                title: '기본 정보',
+                icon: Icons.description_outlined,
+                child: Column(
+                  children: [
+                    _buildInfoTile(
+                      label: '작물',
+                      value: '${detailData!['crop_name'] ?? '-'}',
+                    ),
+                    _buildInfoTile(
+                      label: '부위',
+                      value: '${detailData!['part_name'] ?? '-'}',
+                    ),
+                    _buildInfoTile(
+                      label: '병해명',
+                      value: '${detailData!['disease_name'] ?? '-'}',
+                    ),
+                    _buildInfoTile(
+                      label: '클래스명',
+                      value: '${detailData!['class_name'] ?? '-'}',
+                    ),
+                    _buildInfoTile(
+                      label: '진단 시각',
+                      value: _formatDate(
+                        detailData!['diagnosed_at']?.toString(),
+                      ),
+                    ),
+                    if (detailData!['farm_name'] != null)
+                      _buildInfoTile(
+                        label: '농장',
+                        value: '${detailData!['farm_name']}',
+                      ),
+                    if (detailData!['zone_name'] != null)
+                      _buildInfoTile(
+                        label: '구역',
+                        value: '${detailData!['zone_name']}',
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              _buildSectionCard(
+                title: '추천 조치',
+                icon: Icons.medical_services_outlined,
+                child: _buildRecommendationText(),
+              ),
+              const SizedBox(height: 16),
+
+              _buildSectionCard(
+                title: 'Grad-CAM 경로',
+                icon: Icons.image_search_outlined,
+                child: _buildGradcamPath(),
+              ),
               const SizedBox(height: 20),
-
-              _buildSectionTitle('기본 정보'),
-              const SizedBox(height: 12),
-              _buildInfoTile(
-                label: '작물',
-                value: '${detailData!['crop_name'] ?? '-'}',
-              ),
-              _buildInfoTile(
-                label: '부위',
-                value: '${detailData!['part_name'] ?? '-'}',
-              ),
-              _buildInfoTile(
-                label: '병해명',
-                value: '${detailData!['disease_name'] ?? '-'}',
-              ),
-              _buildInfoTile(
-                label: '클래스명',
-                value: '${detailData!['class_name'] ?? '-'}',
-              ),
-              _buildInfoTile(
-                label: '진단 시각',
-                value: _formatDate(detailData!['diagnosed_at']?.toString()),
-              ),
-              if (detailData!['farm_name'] != null)
-                _buildInfoTile(
-                  label: '농장',
-                  value: '${detailData!['farm_name']}',
-                ),
-
-              if (detailData!['zone_name'] != null)
-                _buildInfoTile(
-                  label: '구역',
-                  value: '${detailData!['zone_name']}',
-                ),
-
-              const SizedBox(height: 10),
-              _buildSectionTitle('추천 조치'),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Text(
-                  '${detailData!['recommendation_text'] ?? '추천 조치 정보가 없습니다.'}',
-                  style: const TextStyle(
-                    fontSize: 14,
-                    height: 1.5,
-                    color: Colors.black87,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-              _buildSectionTitle('Grad-CAM 경로'),
-              const SizedBox(height: 12),
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: Colors.white,
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(color: Colors.grey.shade200),
-                ),
-                child: Text(
-                  '${detailData!['gradcam_path'] ?? '없음'}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Colors.black54,
-                    height: 1.4,
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-              _buildSectionTitle('Bounding Box 목록'),
-              const SizedBox(height: 12),
-              _buildDetectionSection(),
-              const SizedBox(height: 8),
             ],
           ),
         ),

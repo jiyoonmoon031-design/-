@@ -35,6 +35,15 @@ class _DiagnosisHistoryScreenState extends State<DiagnosisHistoryScreen> {
   int? selectedFarmId;
   int? selectedZoneId;
 
+  final Map<String, String> cropIcons = const {
+    '옥수수': '🌽',
+    '토마토': '🍅',
+    '사과': '🍎',
+    '포도': '🍇',
+    '고추': '🌶️',
+    '딸기': '🍓',
+  };
+
   final List<String> cropFilters = ['전체', '옥수수', '포도', '사과', '고추', '딸기'];
 
   @override
@@ -653,7 +662,14 @@ class _DiagnosisHistoryScreenState extends State<DiagnosisHistoryScreen> {
 class CalendarDayHistoryScreen extends StatelessWidget {
   final DateTime selectedDate;
   final List diagnosisList;
-
+  final Map<String, String> cropIcons = const {
+    '옥수수': '🌽',
+    '토마토': '🍅',
+    '사과': '🍎',
+    '포도': '🍇',
+    '고추': '🌶️',
+    '딸기': '🍓',
+  };
   const CalendarDayHistoryScreen({
     super.key,
     required this.selectedDate,
@@ -741,9 +757,11 @@ class CalendarDayHistoryScreen extends StatelessWidget {
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(16),
                 ),
-                child: const Icon(
-                  Icons.local_florist,
-                  color: Colors.redAccent,
+                child: Center(
+                  child: Text(
+                    cropIcons[cropName] ?? '🌱',
+                    style: const TextStyle(fontSize: 30),
+                  ),
                 ),
               ),
               const SizedBox(width: 18),

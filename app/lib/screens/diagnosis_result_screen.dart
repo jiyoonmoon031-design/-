@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'treatment_alert_setting_screen.dart';
+
 class DiagnosisResultScreen extends StatelessWidget {
   final Map<String, dynamic> resultData;
 
@@ -7,6 +8,9 @@ class DiagnosisResultScreen extends StatelessWidget {
     super.key,
     required this.resultData,
   });
+
+  static const String baseUrl = 'http://10.0.2.2:8000';
+  static const Color mainGreen = Color(0xFF6FAF7D);
 
   String _severityLabel(String? value) {
     switch (value) {
@@ -51,6 +55,77 @@ class DiagnosisResultScreen extends StatelessWidget {
     return '-';
   }
 
+  BoxDecoration _cardDecoration() {
+    return BoxDecoration(
+      color: Colors.white,
+      borderRadius: BorderRadius.circular(26),
+      boxShadow: [
+        BoxShadow(
+          color: Colors.black.withOpacity(0.07),
+          blurRadius: 10,
+          offset: const Offset(0, 3),
+        ),
+      ],
+    );
+  }
+
+  String? _imageUrl() {
+    final path = resultData['original_image_path'];
+    if (path == null) return null;
+
+    final pathText = path.toString().replaceAll('\\', '/');
+
+    if (pathText.startsWith('http')) {
+      return pathText;
+    }
+
+    return '$baseUrl/$pathText';
+  }
+
+  Widget _buildSectionCard({
+    required String title,
+    required IconData icon,
+    required Widget child,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: mainGreen.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Icon(
+                  icon,
+                  color: mainGreen,
+                  size: 24,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 19,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          child,
+        ],
+      ),
+    );
+  }
+
   Widget _buildWarningBox({
     required Color bgColor,
     required Color textColor,
@@ -59,10 +134,10 @@ class DiagnosisResultScreen extends StatelessWidget {
   }) {
     return Container(
       width: double.infinity,
-      padding: const EdgeInsets.all(14),
+      padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
         color: bgColor,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(18),
         border: Border.all(color: textColor.withOpacity(0.25)),
       ),
       child: Row(
@@ -86,12 +161,86 @@ class DiagnosisResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSectionTitle(String title) {
-    return Text(
-      title,
-      style: const TextStyle(
-        fontSize: 17,
-        fontWeight: FontWeight.bold,
+  Widget _buildSummaryCard() {
+    final severity = resultData['severity_level']?.toString();
+    final hasDisease = resultData['has_disease'];
+    final confidence = resultData['confidence_score'];
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: _cardDecoration(),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 52,
+                height: 52,
+                decoration: BoxDecoration(
+                  color: mainGreen.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: const Icon(
+                  Icons.eco_outlined,
+                  color: mainGreen,
+                  size: 30,
+                ),
+              ),
+              const SizedBox(width: 14),
+              const Expanded(
+                child: Text(
+                  '진단 결과 요약',
+                  style: TextStyle(
+                    fontSize: 21,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              _buildChip(
+                text: _hasDiseaseLabel(hasDisease),
+                color: Colors.blueGrey,
+              ),
+              _buildChip(
+                text: '심각도: ${_severityLabel(severity)}',
+                color: _severityColor(severity),
+              ),
+              _buildChip(
+                text: '신뢰도: ${_formatConfidence(confidence)}',
+                color: Colors.purple,
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildChip({
+    required String text,
+    required Color color,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.12),
+        borderRadius: BorderRadius.circular(30),
+      ),
+      child: Text(
+        text,
+        style: TextStyle(
+          color: color,
+          fontWeight: FontWeight.w700,
+          fontSize: 13,
+        ),
       ),
     );
   }
@@ -104,21 +253,21 @@ class DiagnosisResultScreen extends StatelessWidget {
       margin: const EdgeInsets.only(bottom: 10),
       padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: Colors.grey.shade200),
       ),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           SizedBox(
-            width: 88,
+            width: 82,
             child: Text(
               label,
               style: const TextStyle(
                 fontSize: 13,
                 color: Colors.black54,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -128,6 +277,7 @@ class DiagnosisResultScreen extends StatelessWidget {
               style: const TextStyle(
                 fontSize: 14,
                 color: Colors.black87,
+                height: 1.35,
               ),
             ),
           ),
@@ -136,138 +286,202 @@ class DiagnosisResultScreen extends StatelessWidget {
     );
   }
 
-  Widget _buildSummaryCard() {
-    final severity = resultData['severity_level']?.toString();
-    final hasDisease = resultData['has_disease'];
-    final confidence = resultData['confidence_score'];
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(18),
-      decoration: BoxDecoration(
-        color: Colors.green.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.green.shade100),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '진단 요약',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 14),
-          Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.blueGrey.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Text(
-                  _hasDiseaseLabel(hasDisease),
-                  style: const TextStyle(
-                    color: Colors.blueGrey,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: _severityColor(severity).withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Text(
-                  '심각도: ${_severityLabel(severity)}',
-                  style: TextStyle(
-                    color: _severityColor(severity),
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-              Container(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 12,
-                  vertical: 8,
-                ),
-                decoration: BoxDecoration(
-                  color: Colors.purple.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(30),
-                ),
-                child: Text(
-                  '신뢰도: ${_formatConfidence(confidence)}',
-                  style: const TextStyle(
-                    color: Colors.purple,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
-              ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildDetectionSection() {
+  Widget _buildImageWithBoundingBoxes() {
+    final imageUrl = _imageUrl();
     final detections = (resultData['detections'] as List?) ?? [];
 
-    if (detections.isEmpty) {
+    if (imageUrl == null) {
       return Container(
         width: double.infinity,
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(18),
         decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(14),
-          border: Border.all(color: Colors.grey.shade200),
+          color: Colors.red.shade50,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.red.shade200),
         ),
         child: const Text(
-          '검출된 Bounding Box 정보가 없습니다.',
-          style: TextStyle(
-            fontSize: 14,
-            color: Colors.black54,
-          ),
+          '이미지 경로가 없습니다. 새로 진단을 실행해주세요.',
+          style: TextStyle(color: Colors.red),
         ),
       );
     }
 
-    return Column(
-      children: detections.asMap().entries.map((entry) {
-        final index = entry.key + 1;
-        final det = entry.value;
+    final originalWidth =
+        (resultData['image_width'] as num?)?.toDouble() ?? 640;
+    final originalHeight =
+        (resultData['image_height'] as num?)?.toDouble() ?? 640;
 
-        return Container(
-          width: double.infinity,
-          margin: const EdgeInsets.only(bottom: 10),
-          padding: const EdgeInsets.all(14),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Text(
-            '영역 $index: (${det['bbox_xmin']}, ${det['bbox_ymin']}) ~ (${det['bbox_xmax']}, ${det['bbox_ymax']})',
-            style: const TextStyle(
-              fontSize: 14,
-              color: Colors.black87,
-              height: 1.4,
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        LayoutBuilder(
+          builder: (context, constraints) {
+            final displayWidth = constraints.maxWidth;
+            final displayHeight = displayWidth * (originalHeight / originalWidth);
+
+            final scaleX = displayWidth / originalWidth;
+            final scaleY = displayHeight / originalHeight;
+
+            return ClipRRect(
+              borderRadius: BorderRadius.circular(20),
+              child: SizedBox(
+                width: displayWidth,
+                height: displayHeight,
+                child: Stack(
+                  children: [
+                    Image.network(
+                      imageUrl,
+                      width: displayWidth,
+                      height: displayHeight,
+                      fit: BoxFit.fill,
+                      errorBuilder: (context, error, stackTrace) {
+                        return Container(
+                          color: Colors.grey.shade100,
+                          alignment: Alignment.center,
+                          child: const Text(
+                            '이미지를 불러오지 못했습니다.',
+                            style: TextStyle(color: Colors.black54),
+                          ),
+                        );
+                      },
+                    ),
+                    ...detections.map((det) {
+                      final x1 = (det['bbox_xmin'] as num?)?.toDouble() ?? 0;
+                      final y1 = (det['bbox_ymin'] as num?)?.toDouble() ?? 0;
+                      final x2 = (det['bbox_xmax'] as num?)?.toDouble() ?? 0;
+                      final y2 = (det['bbox_ymax'] as num?)?.toDouble() ?? 0;
+
+                      return Positioned(
+                        left: x1 * scaleX,
+                        top: y1 * scaleY,
+                        width: (x2 - x1) * scaleX,
+                        height: (y2 - y1) * scaleY,
+                        child: Container(
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.red,
+                              width: 3,
+                            ),
+                          ),
+                        ),
+                      );
+                    }).toList(),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+        if (detections.isEmpty) ...[
+          const SizedBox(height: 12),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.all(14),
+            decoration: BoxDecoration(
+              color: Colors.orange.shade50,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.orange.shade200),
+            ),
+            child: Text(
+              '탐지된 병변 위치가 없습니다. 분류 결과는 확인되었지만 bbox는 검출되지 않았습니다.',
+              style: TextStyle(
+                color: Colors.orange.shade900,
+                fontSize: 13,
+                height: 1.4,
+              ),
             ),
           ),
-        );
-      }).toList(),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildRecommendationText() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Text(
+        '${resultData['recommendation_text'] ?? '추천 조치 정보가 없습니다.'}',
+        style: const TextStyle(
+          fontSize: 14,
+          height: 1.55,
+          color: Colors.black87,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildGradcamPath() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.grey.shade50,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: Colors.grey.shade200),
+      ),
+      child: Text(
+        '${resultData['gradcam_path'] ?? '없음'}',
+        style: const TextStyle(
+          fontSize: 13,
+          color: Colors.black54,
+          height: 1.4,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildAlertButton(BuildContext context) {
+    if (resultData['has_disease'] != true) {
+      return const SizedBox.shrink();
+    }
+
+    return SizedBox(
+      width: double.infinity,
+      height: 54,
+      child: ElevatedButton.icon(
+        onPressed: () {
+          final diagnosisId = resultData['diagnosis_id'];
+
+          if (diagnosisId == null) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text('진단 ID가 없어 알림을 설정할 수 없습니다.'),
+              ),
+            );
+            return;
+          }
+
+          Navigator.push(
+            context,
+            MaterialPageRoute(
+              builder: (_) => TreatmentAlertSettingScreen(
+                diagnosisId: diagnosisId,
+              ),
+            ),
+          );
+        },
+        icon: const Icon(Icons.notifications_active_outlined),
+        label: const Text(
+          '알림 설정',
+          style: TextStyle(
+            fontSize: 17,
+            fontWeight: FontWeight.bold,
+          ),
+        ),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: mainGreen,
+          foregroundColor: Colors.white,
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
+          ),
+        ),
+      ),
     );
   }
 
@@ -278,13 +492,17 @@ class DiagnosisResultScreen extends StatelessWidget {
         resultData['retake_recommended_flag'] ?? false;
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         title: const Text('진단 결과'),
         centerTitle: true,
+        backgroundColor: Colors.grey.shade100,
+        foregroundColor: Colors.black87,
+        elevation: 0,
       ),
       body: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.all(18),
           children: [
             if (retakeRecommendedFlag)
               _buildWarningBox(
@@ -304,121 +522,57 @@ class DiagnosisResultScreen extends StatelessWidget {
               const SizedBox(height: 16),
 
             _buildSummaryCard(),
-            const SizedBox(height: 20),
+            const SizedBox(height: 16),
 
-            _buildSectionTitle('기본 정보'),
-            const SizedBox(height: 12),
-            _buildInfoTile(
-              label: '작물',
-              value: '${resultData['crop_name'] ?? '-'}',
+            _buildSectionCard(
+              title: '병변 위치 이미지',
+              icon: Icons.crop_free_outlined,
+              child: _buildImageWithBoundingBoxes(),
             ),
-            _buildInfoTile(
-              label: '부위',
-              value: '${resultData['part_name'] ?? '-'}',
-            ),
-            _buildInfoTile(
-              label: '병해명',
-              value: '${resultData['disease_name'] ?? '-'}',
-            ),
-            _buildInfoTile(
-              label: '클래스명',
-              value: '${resultData['class_name'] ?? '-'}',
-            ),
+            const SizedBox(height: 16),
 
-            const SizedBox(height: 10),
-            _buildSectionTitle('추천 조치'),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Text(
-                '${resultData['recommendation_text'] ?? '추천 조치 정보가 없습니다.'}',
-                style: const TextStyle(
-                  fontSize: 14,
-                  height: 1.5,
-                  color: Colors.black87,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-            _buildSectionTitle('Grad-CAM 경로'),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(14),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(color: Colors.grey.shade200),
-              ),
-              child: Text(
-                '${resultData['gradcam_path'] ?? '없음'}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.black54,
-                  height: 1.4,
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-            _buildSectionTitle('Bounding Box 목록'),
-            const SizedBox(height: 12),
-            _buildDetectionSection(),
-
-            const SizedBox(height: 24),
-
-            if (resultData['has_disease'] == true)
-              SizedBox(
-                width: double.infinity,
-                height: 54,
-                child: ElevatedButton.icon(
-                  onPressed: () {
-                    final diagnosisId = resultData['diagnosis_id'];
-
-                    if (diagnosisId == null) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text('진단 ID가 없어 알림을 설정할 수 없습니다.'),
-                        ),
-                      );
-                      return;
-                    }
-
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (_) => TreatmentAlertSettingScreen(
-                          diagnosisId: diagnosisId,
-                        ),
-                      ),
-                    );
-                  },
-                  icon: const Icon(Icons.notifications_active_outlined),
-                  label: const Text(
-                    '알림 설정',
-                    style: TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.bold,
-                    ),
+            _buildSectionCard(
+              title: '기본 정보',
+              icon: Icons.description_outlined,
+              child: Column(
+                children: [
+                  _buildInfoTile(
+                    label: '작물',
+                    value: '${resultData['crop_name'] ?? '-'}',
                   ),
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6FAF7D),
-                    foregroundColor: Colors.white,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(16),
-                    ),
+                  _buildInfoTile(
+                    label: '부위',
+                    value: '${resultData['part_name'] ?? '-'}',
                   ),
-                ),
+                  _buildInfoTile(
+                    label: '병해명',
+                    value: '${resultData['disease_name'] ?? '-'}',
+                  ),
+                  _buildInfoTile(
+                    label: '클래스명',
+                    value: '${resultData['class_name'] ?? '-'}',
+                  ),
+                ],
               ),
+            ),
+            const SizedBox(height: 16),
 
-            const SizedBox(height: 8),
+            _buildSectionCard(
+              title: '추천 조치',
+              icon: Icons.medical_services_outlined,
+              child: _buildRecommendationText(),
+            ),
+            const SizedBox(height: 16),
+
+            _buildSectionCard(
+              title: 'Grad-CAM 경로',
+              icon: Icons.image_search_outlined,
+              child: _buildGradcamPath(),
+            ),
+            const SizedBox(height: 20),
+
+            _buildAlertButton(context),
+            const SizedBox(height: 20),
           ],
         ),
       ),

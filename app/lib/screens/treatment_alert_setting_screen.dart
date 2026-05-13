@@ -16,6 +16,8 @@ class TreatmentAlertSettingScreen extends StatefulWidget {
 
 class _TreatmentAlertSettingScreenState
     extends State<TreatmentAlertSettingScreen> {
+  final Color mainGreen = const Color(0xFF6FAF7D);
+
   bool isLoading = false;
 
   int selectedYear = DateTime.now().year;
@@ -80,22 +82,42 @@ class _TreatmentAlertSettingScreenState
   }) {
     return DropdownButtonFormField<int>(
       value: items.contains(value) ? value : items.first,
+      isExpanded: true,
       decoration: InputDecoration(
         labelText: label,
+        filled: true,
+        fillColor: Colors.white,
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(14),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: Colors.grey.shade300),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+          borderSide: BorderSide(color: mainGreen, width: 1.5),
+        ),
+        contentPadding: const EdgeInsets.symmetric(
+          horizontal: 14,
+          vertical: 14,
         ),
       ),
       items: items.map((item) {
         return DropdownMenuItem(
           value: item,
-          child: Text('$item'),
+          child: Text(
+            '$item',
+            overflow: TextOverflow.ellipsis,
+          ),
         );
       }).toList(),
-      onChanged: (value) {
-        if (value == null) return;
-        onChanged(value);
-      },
+      onChanged: isLoading
+          ? null
+          : (value) {
+              if (value == null) return;
+              onChanged(value);
+            },
     );
   }
 
@@ -115,9 +137,13 @@ class _TreatmentAlertSettingScreenState
     final minuteItems = List.generate(60, (index) => index);
 
     return Scaffold(
+      backgroundColor: Colors.grey.shade100,
       appBar: AppBar(
         title: const Text('알림 설정'),
         centerTitle: true,
+        backgroundColor: Colors.white,
+        foregroundColor: Colors.black,
+        elevation: 0,
       ),
       body: SafeArea(
         child: SingleChildScrollView(
@@ -146,106 +172,136 @@ class _TreatmentAlertSettingScreenState
 
               const Text(
                 '날짜 선택',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
 
               const SizedBox(height: 12),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: buildDropdown(
-                      label: '년',
-                      value: selectedYear,
-                      items: yearItems,
-                      onChanged: (value) {
-                        setState(() {
-                          selectedYear = value;
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: buildDropdown(
+                        label: '년',
+                        value: selectedYear,
+                        items: yearItems,
+                        onChanged: (value) {
+                          setState(() {
+                            selectedYear = value;
 
-                          final lastDay =
-                              DateTime(selectedYear, selectedMonth + 1, 0).day;
-                          if (selectedDay > lastDay) {
-                            selectedDay = lastDay;
-                          }
-                        });
-                      },
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: buildDropdown(
-                      label: '월',
-                      value: selectedMonth,
-                      items: monthItems,
-                      onChanged: (value) {
-                        setState(() {
-                          selectedMonth = value;
+                            final lastDay = DateTime(
+                              selectedYear,
+                              selectedMonth + 1,
+                              0,
+                            ).day;
 
-                          final lastDay =
-                              DateTime(selectedYear, selectedMonth + 1, 0).day;
-                          if (selectedDay > lastDay) {
-                            selectedDay = lastDay;
-                          }
-                        });
-                      },
+                            if (selectedDay > lastDay) {
+                              selectedDay = lastDay;
+                            }
+                          });
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: buildDropdown(
-                      label: '일',
-                      value: selectedDay,
-                      items: dayItems,
-                      onChanged: (value) {
-                        setState(() {
-                          selectedDay = value;
-                        });
-                      },
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: buildDropdown(
+                        label: '월',
+                        value: selectedMonth,
+                        items: monthItems,
+                        onChanged: (value) {
+                          setState(() {
+                            selectedMonth = value;
+
+                            final lastDay = DateTime(
+                              selectedYear,
+                              selectedMonth + 1,
+                              0,
+                            ).day;
+
+                            if (selectedDay > lastDay) {
+                              selectedDay = lastDay;
+                            }
+                          });
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: buildDropdown(
+                        label: '일',
+                        value: selectedDay,
+                        items: dayItems,
+                        onChanged: (value) {
+                          setState(() {
+                            selectedDay = value;
+                          });
+                        },
+                      ),
+                    ),
+                  ],
+                ),
               ),
 
               const SizedBox(height: 28),
 
               const Text(
                 '시간 선택',
-                style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                ),
               ),
 
               const SizedBox(height: 12),
 
-              Row(
-                children: [
-                  Expanded(
-                    child: buildDropdown(
-                      label: '시',
-                      value: selectedHour,
-                      items: hourItems,
-                      onChanged: (value) {
-                        setState(() {
-                          selectedHour = value;
-                        });
-                      },
+              Container(
+                padding: const EdgeInsets.all(18),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  border: Border.all(color: Colors.grey.shade200),
+                ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: buildDropdown(
+                        label: '시',
+                        value: selectedHour,
+                        items: hourItems,
+                        onChanged: (value) {
+                          setState(() {
+                            selectedHour = value;
+                          });
+                        },
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: buildDropdown(
-                      label: '분',
-                      value: selectedMinute,
-                      items: minuteItems,
-                      onChanged: (value) {
-                        setState(() {
-                          selectedMinute = value;
-                        });
-                      },
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: buildDropdown(
+                        label: '분',
+                        value: selectedMinute,
+                        items: minuteItems,
+                        onChanged: (value) {
+                          setState(() {
+                            selectedMinute = value;
+                          });
+                        },
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
 
-              const SizedBox(height: 36),
+              const SizedBox(height: 28),
 
               SizedBox(
                 height: 54,
@@ -255,19 +311,32 @@ class _TreatmentAlertSettingScreenState
                       ? const SizedBox(
                           width: 18,
                           height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2),
+                          child: CircularProgressIndicator(
+                            strokeWidth: 2,
+                            color: Colors.white,
+                          ),
                         )
                       : const Icon(Icons.notifications_active_outlined),
-                  label: Text(isLoading ? '설정 중...' : '알림 설정하기'),
+                  label: Text(
+                    isLoading ? '설정 중...' : '알림 설정하기',
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.bold,
+                    ),
+                  ),
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF6FAF7D),
+                    backgroundColor: mainGreen,
                     foregroundColor: Colors.white,
+                    disabledBackgroundColor: mainGreen.withOpacity(0.55),
+                    disabledForegroundColor: Colors.white,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(16),
                     ),
                   ),
                 ),
               ),
+
+              const SizedBox(height: 20),
             ],
           ),
         ),

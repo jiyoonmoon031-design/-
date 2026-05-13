@@ -31,7 +31,13 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 app = FastAPI() #백엔드 앱을 만드는 코드 @app.get, @app.post 이런식으로 붙여서 API를 만듬
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
+app.mount(
+    "/uploads",
+    StaticFiles(directory=os.path.join(BASE_DIR, "uploads")),
+    name="uploads"
+)
 security = HTTPBearer() #토큰 인증방식 사용 즉, 로그인 후 받은 토큰을 Authorization: Bearer... 형태로 보냄
 scheduler = BackgroundScheduler()
 # 테이블 생성
@@ -825,25 +831,78 @@ def upload_and_diagnose(
         if ext not in allowed_extensions: #파일 형식이 지원되지 않는 형식일 때
             raise HTTPException(status_code=400, detail="지원하지 않는 이미지 형식입니다.")
 
-        os.makedirs("uploads/originals", exist_ok=True) #os.makedirs(): 폴더를 생성하는 함수. uploads/originals: 만들고 싶은 폴더 경로, exist_ok: 이미 폴더가 있어도 에러 내지 말고 넘어가라
+        BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
-        unique_filename = f"{uuid4()}{ext}" #파일 이름이 중복되지 않도록 방지, uuid(): 랜덤한 고유값 생성, 랜덤한 고유값에 ext(확장자) 합치기
-        save_path = os.path.join("uploads/originals", unique_filename)#파일을 저장할 경로 생성, 파일 경로와 파일이름 합침
+        upload_dir = os.path.join(BASE_DIR, "uploads", "originals")
+        os.makedirs(upload_dir, exist_ok=True)
 
-        with open(save_path, "wb") as buffer: #save_path 위치에 파일을 "쓰기 모드"로 열기, with...as buffer: 파일을 열고 작업이 끝나면 자동으로 닫아줌
-            shutil.copyfileobj(file.file, buffer)#한 파일의 내용을 다른 파일로 그대로 복사
+        unique_filename = f"{uuid4()}{ext}"
 
+        save_path = os.path.join(upload_dir, unique_filename)
+
+        with open(save_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+
+        db_path = f"uploads/originals/{unique_filename}"
         image_asset = models.ImageAsset(
             user_id=current_user.user_id,
-            original_image_path=save_path
+            original_image_path=db_path
         )
         db.add(image_asset)
         db.commit()
         db.refresh(image_asset)
 #task-----------------------------confidence_flag 유지할지 추후에 결정-------------------------
-        ai_result = request_ai_diagnosis(save_path) #진단결과 저장
+        ai_result = request_ai_diagnosis(save_path)
 
-        confidence = ai_result["confidence_score"]
+        print("AI_RESULT:", ai_result)
+
+        final_result = ai_result.get("final", {})
+        classifier = ai_result.get("classifier", {})
+
+        confidence = ai_result.get("confidence_score")
+
+        if confidence is None:
+            confidence = ai_result.get("confidence")
+
+        if confidence is None:
+            confidence = final_result.get("confidence")
+
+        if confidence is None:
+            confidence = classifier.get("calibrated_confidence")
+
+        if confidence is None:
+            raise HTTPException(
+                status_code=500,
+                detail=f"AI 응답에 confidence_score/confidence 값이 없습니다. 응답: {ai_result}"
+            )
+
+        confidence = float(confidence)
+        class_name = (
+            ai_result.get("class_name")
+            or final_result.get("disease_class_name")
+            or classifier.get("pred_class_name")
+            or "알 수 없음"
+        )
+
+        parts = class_name.split("_")
+
+        crop_name = ai_result.get("crop_name")
+        part_name = ai_result.get("part_name")
+        disease_name = ai_result.get("disease_name")
+
+        if crop_name is None and len(parts) >= 1:
+            crop_name = parts[0]
+
+        if part_name is None and len(parts) >= 2:
+            part_name = parts[1]
+
+        if disease_name is None and len(parts) >= 3:
+            disease_name = "_".join(parts[2:])
+
+        has_disease = ai_result.get("has_disease")
+
+        if has_disease is None:
+            has_disease = not final_result.get("is_healthy", False)
         low_confidence_flag = 0.5 <= confidence < 0.7
         retake_recommended_flag = confidence < 0.5
 
@@ -852,13 +911,13 @@ def upload_and_diagnose(
             farm_id=zone.farm_id if zone else None,
             zone_id=selected_zone_id,
             image_asset_id=image_asset.image_asset_id,
-            crop_name=ai_result["crop_name"],
-            part_name=ai_result["part_name"],
-            disease_name=ai_result["disease_name"],
-            class_name=ai_result["class_name"],
-            has_disease=ai_result["has_disease"],
+            crop_name=crop_name or "알 수 없음",
+            part_name=part_name or "알 수 없음",
+            disease_name=disease_name or "알 수 없음",
+            class_name=class_name,
+            has_disease=has_disease,
             confidence_score=confidence,
-            severity_level=ai_result["severity_level"],
+            severity_level=ai_result.get("severity_level", "MILD"),
             recommendation_text=ai_result.get("recommendation_text"),
             low_confidence_flag=low_confidence_flag,
             retake_recommended_flag=retake_recommended_flag,
@@ -869,16 +928,42 @@ def upload_and_diagnose(
         db.commit()
         db.refresh(diagnosis)
 
-        detections = ai_result.get("detections", []) #병변영역 정보 저장
+        detections = (
+            ai_result.get("detections")
+            or ai_result.get("detector", {}).get("detections")
+            or ai_result.get("final", {}).get("lesions")
+            or []
+        )
+
+        detection_response = []
+
         for det in detections:
+
+            if "bbox_xyxy" in det:
+                x1, y1, x2, y2 = det["bbox_xyxy"]
+
+            else:
+                x1 = det.get("bbox_xmin", det.get("x1", 0))
+                y1 = det.get("bbox_ymin", det.get("y1", 0))
+                x2 = det.get("bbox_xmax", det.get("x2", 0))
+                y2 = det.get("bbox_ymax", det.get("y2", 0))
+
             detection = models.DetectionResult(
                 diagnosis_id=diagnosis.diagnosis_id,
-                bbox_xmin=det["bbox_xmin"],
-                bbox_ymin=det["bbox_ymin"],
-                bbox_xmax=det["bbox_xmax"],
-                bbox_ymax=det["bbox_ymax"],
+                bbox_xmin=int(x1),
+                bbox_ymin=int(y1),
+                bbox_xmax=int(x2),
+                bbox_ymax=int(y2),
             )
+
             db.add(detection)
+
+            detection_response.append({
+                "bbox_xmin": int(x1),
+                "bbox_ymin": int(y1),
+                "bbox_xmax": int(x2),
+                "bbox_ymax": int(y2),
+            })
 
         db.commit()
 
@@ -915,7 +1000,10 @@ def upload_and_diagnose(
                 "low_confidence_flag": diagnosis.low_confidence_flag,
                 "retake_recommended_flag": diagnosis.retake_recommended_flag,
                 "gradcam_path": diagnosis.gradcam_path,
-                "detections": detections
+                "detections": detection_response,
+                "original_image_path": image_asset.original_image_path.replace("\\", "/"),
+                "image_width": ai_result.get("image_size", {}).get("width"),
+                "image_height": ai_result.get("image_size", {}).get("height"),
             }
         }
 
@@ -1046,7 +1134,9 @@ def get_diagnosis_detail(
     detections = db.query(models.DetectionResult).filter(
         models.DetectionResult.diagnosis_id == diagnosis_id
     ).all()
-
+    image_asset = db.query(models.ImageAsset).filter(
+        models.ImageAsset.image_asset_id == diagnosis.image_asset_id
+    ).first()
     return {
         "success": True,
         "data": {
@@ -1066,6 +1156,12 @@ def get_diagnosis_detail(
             "gradcam_path": diagnosis.gradcam_path,
             "action_status": diagnosis.action_status,
             "diagnosed_at": diagnosis.diagnosed_at,
+            "original_image_path": (
+                image_asset.original_image_path.replace("\\", "/")
+                if image_asset else None
+            ),
+            "image_width": 1152,
+            "image_height": 1152,
             "detections": [
                 {
                     "bbox_xmin": d.bbox_xmin,
@@ -2091,6 +2187,7 @@ def get_nearby_farms(
             "public_region_label": farm.public_region_label,
             "share_consent_level": farm.share_consent_level,
             "crop_names": crop_names,
+            "farm_image_path": farm.farm_image_path,
         })
 
     if sort_by == "name":

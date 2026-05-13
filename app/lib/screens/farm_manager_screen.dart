@@ -32,7 +32,14 @@ class _FarmManagerScreenState extends State<FarmManagerScreen> {
 
   int? selectedFarmId;
   int? selectedZoneId;
-
+    final Map<String, String> cropIcons = {
+    '옥수수': '🌽',
+    '토마토': '🍅',
+    '사과': '🍎',
+    '포도': '🍇',
+    '고추': '🌶️',
+    '딸기': '🍓',
+  };
   final cropFilters = ['전체', '옥수수', '포도', '사과', '고추', '딸기'];
 
   @override
@@ -465,7 +472,12 @@ class _FarmManagerScreenState extends State<FarmManagerScreen> {
                   color: Colors.yellow.shade100,
                   borderRadius: BorderRadius.circular(14),
                 ),
-                child: const Icon(Icons.grain, color: Colors.orange),
+                child: Center(
+                  child: Text(
+                    cropIcons[cropName] ?? '🌱',
+                    style: const TextStyle(fontSize: 30),
+                  ),
+                ),
               ),
               const SizedBox(width: 14),
               Expanded(

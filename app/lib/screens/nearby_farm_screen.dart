@@ -384,9 +384,20 @@ class _NearbyFarmCard extends StatelessWidget {
     required this.farm,
   });
 
+  String? get imageUrl {
+    final imagePath = farm['farm_image_path']?.toString();
+
+    if (imagePath == null || imagePath.isEmpty) {
+      return null;
+    }
+
+    return '${FarmService.baseUrl}/$imagePath';
+  }
+
   @override
   Widget build(BuildContext context) {
     final cropNames = (farm['crop_names'] as List?) ?? [];
+    final farmImageUrl = imageUrl;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -404,13 +415,30 @@ class _NearbyFarmCard extends StatelessWidget {
       ),
       child: Row(
         children: [
-          CircleAvatar(
-            radius: 30,
-            backgroundColor: const Color(0xFFE8F5EC),
-            child: const Icon(
-              Icons.location_on_outlined,
-              color: Color(0xFF6FAF7D),
-              size: 30,
+          ClipOval(
+            child: Container(
+              width: 60,
+              height: 60,
+              color: const Color(0xFFE8F5EC),
+              child: farmImageUrl == null
+                  ? const Icon(
+                      Icons.location_on_outlined,
+                      color: Color(0xFF6FAF7D),
+                      size: 30,
+                    )
+                  : Image.network(
+                      farmImageUrl,
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                      errorBuilder: (context, error, stackTrace) {
+                        return const Icon(
+                          Icons.location_on_outlined,
+                          color: Color(0xFF6FAF7D),
+                          size: 30,
+                        );
+                      },
+                    ),
             ),
           ),
           const SizedBox(width: 18),

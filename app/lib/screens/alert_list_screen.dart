@@ -14,6 +14,15 @@ class _AlertListScreenState extends State<AlertListScreen> {
   String message = '';
   List<Map<String, dynamic>> alerts = [];
 
+  final Map<String, String> cropIcons = {
+    '옥수수': '🌽',
+    '토마토': '🍅',
+    '사과': '🍎',
+    '포도': '🍇',
+    '고추': '🌶️',
+    '딸기': '🍓',
+  }; 
+
   @override
   void initState() {
     super.initState();
@@ -170,9 +179,11 @@ class _AlertListScreenState extends State<AlertListScreen> {
                 color: Colors.green.shade50,
                 borderRadius: BorderRadius.circular(16),
               ),
-              child: const Icon(
-                Icons.notifications_active_outlined,
-                color: Color(0xFF6FAF7D),
+              child: Center(
+                child: Text(
+                  cropIcons[cropName] ?? '🌱',
+                  style: const TextStyle(fontSize: 28),
+                ),
               ),
             ),
             const SizedBox(width: 14),
