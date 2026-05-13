@@ -12,6 +12,8 @@ class NearbyFarmScreen extends StatefulWidget {
 }
 
 class _NearbyFarmScreenState extends State<NearbyFarmScreen> {
+  final MapController mapController = MapController();
+
   List<dynamic> myFarms = [];
   List<dynamic> nearbyFarms = [];
 
@@ -81,6 +83,13 @@ class _NearbyFarmScreenState extends State<NearbyFarmScreen> {
         };
         isNearbyLoading = false;
       });
+
+      final base = baseLatLng;
+      if (base != null) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          mapController.move(base, 12);
+        });
+      }
     } else {
       setState(() {
         nearbyFarms = [];
@@ -99,110 +108,110 @@ class _NearbyFarmScreenState extends State<NearbyFarmScreen> {
     if (lat == null || lng == null) return null;
 
     return LatLng(
-        (lat as num).toDouble(),
-        (lng as num).toDouble(),
+      (lat as num).toDouble(),
+      (lng as num).toDouble(),
     );
-    }
+  }
 
   List<Marker> buildMarkers() {
-  final markers = <Marker>[];
+    final markers = <Marker>[];
 
-  final base = baseLatLng;
+    final base = baseLatLng;
 
-  // 내 농장 위치 마커
-  if (base != null) {
-    markers.add(
-      Marker(
-        point: base,
-        width: 120,
-        height: 90,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-              decoration: BoxDecoration(
-                color: const Color(0xFF6FAF7D),
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.18),
-                    blurRadius: 5,
-                  ),
-                ],
-              ),
-              child: Text(
-                '내 농장 · ${selectedBaseFarm?['farm_name'] ?? ''}',
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
+    if (base != null) {
+      markers.add(
+        Marker(
+          point: base,
+          width: 120,
+          height: 90,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF6FAF7D),
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.18),
+                      blurRadius: 5,
+                    ),
+                  ],
                 ),
-                overflow: TextOverflow.ellipsis,
-              ),
-            ),
-            const SizedBox(height: 2),
-            const Icon(
-              Icons.my_location,
-              size: 42,
-              color: Color(0xFF6FAF7D),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  // 인근 농장 위치 마커
-  for (final farm in nearbyFarms) {
-    final lat = farm['latitude'];
-    final lng = farm['longitude'];
-
-    if (lat == null || lng == null) continue;
-
-    markers.add(
-      Marker(
-        point: LatLng(
-          (lat as num).toDouble(),
-          (lng as num).toDouble(),
-        ),
-        width: 150,
-        height: 80,
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
-              decoration: BoxDecoration(
-                color: Colors.white,
-                borderRadius: BorderRadius.circular(18),
-                boxShadow: [
-                  BoxShadow(
-                    color: Colors.black.withOpacity(0.15),
-                    blurRadius: 5,
+                child: Text(
+                  '내 농장 · ${selectedBaseFarm?['farm_name'] ?? ''}',
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
                   ),
-                ],
+                  overflow: TextOverflow.ellipsis,
+                ),
               ),
-              child: Text(
-                '${farm['farm_name']} · ${farm['distance_km']}km',
-                style: const TextStyle(fontSize: 11),
-                overflow: TextOverflow.ellipsis,
+              const SizedBox(height: 2),
+              const Icon(
+                Icons.my_location,
+                size: 42,
+                color: Color(0xFF6FAF7D),
               ),
-            ),
-            const SizedBox(height: 2),
-            const Icon(
-              Icons.location_on,
-              color: Color(0xFF6FAF7D),
-              size: 34,
-            ),
-          ],
+            ],
+          ),
         ),
-      ),
-    );
-  }
+      );
+    }
 
-  return markers;
-}
+    for (final farm in nearbyFarms) {
+      final lat = farm['latitude'];
+      final lng = farm['longitude'];
+
+      if (lat == null || lng == null) continue;
+
+      markers.add(
+        Marker(
+          point: LatLng(
+            (lat as num).toDouble(),
+            (lng as num).toDouble(),
+          ),
+          width: 150,
+          height: 80,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 8, vertical: 5),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(18),
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.15),
+                      blurRadius: 5,
+                    ),
+                  ],
+                ),
+                child: Text(
+                  '${farm['farm_name']} · ${farm['distance_km']}km',
+                  style: const TextStyle(fontSize: 11),
+                  overflow: TextOverflow.ellipsis,
+                ),
+              ),
+              const SizedBox(height: 2),
+              const Icon(
+                Icons.location_on,
+                color: Color(0xFF6FAF7D),
+                size: 34,
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return markers;
+  }
 
   void changeSort(String value) async {
     setState(() {
@@ -243,9 +252,7 @@ class _NearbyFarmScreenState extends State<NearbyFarmScreen> {
               color: Color(0xFF334155),
             ),
           ),
-
           const SizedBox(height: 16),
-
           if (myFarms.isEmpty)
             const Text(
               '등록된 농장이 없습니다. 먼저 농장을 등록해주세요.',
@@ -282,14 +289,13 @@ class _NearbyFarmScreenState extends State<NearbyFarmScreen> {
                 await loadNearbyFarms();
               },
             ),
-
           const SizedBox(height: 16),
-
           ClipRRect(
             borderRadius: BorderRadius.circular(18),
             child: SizedBox(
               height: 280,
               child: FlutterMap(
+                mapController: mapController,
                 options: MapOptions(
                   initialCenter: center,
                   initialZoom: 10,
@@ -307,9 +313,7 @@ class _NearbyFarmScreenState extends State<NearbyFarmScreen> {
               ),
             ),
           ),
-
           const SizedBox(height: 18),
-
           Row(
             children: [
               ChoiceChip(
@@ -333,9 +337,7 @@ class _NearbyFarmScreenState extends State<NearbyFarmScreen> {
               ),
             ],
           ),
-
           const SizedBox(height: 16),
-
           if (isNearbyLoading)
             const Center(child: CircularProgressIndicator())
           else if (message.isNotEmpty)
@@ -385,7 +387,6 @@ class _NearbyFarmCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final cropNames = (farm['crop_names'] as List?) ?? [];
-    final diseaseNames = (farm['disease_names'] as List?) ?? [];
 
     return Container(
       margin: const EdgeInsets.only(bottom: 12),
@@ -430,16 +431,6 @@ class _NearbyFarmCard extends StatelessWidget {
                   style: const TextStyle(
                     fontSize: 14,
                     color: Colors.blueGrey,
-                  ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  diseaseNames.isEmpty
-                      ? '최근 병해 정보 없음'
-                      : '병해: ${diseaseNames.join(", ")}',
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Colors.grey,
                   ),
                 ),
               ],

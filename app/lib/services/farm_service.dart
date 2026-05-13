@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class FarmService {
-  static const String baseUrl = 'http://127.0.0.1:8000';
+  static const String baseUrl = 'http://10.0.2.2:8000';
 
   static Future<String?> _getToken() async {
     final prefs = await SharedPreferences.getInstance();
@@ -39,74 +39,118 @@ class FarmService {
     }
   }
 
-  static Future<Map<String, dynamic>> createFarm({
-    required String farmName,
-    String? farmLocation,
-    String? farmDescription,
-  }) async {
-    try {
-      final token = await _getToken();
-      if (token == null) {
-        return {'success': false, 'message': '토큰이 없습니다.'};
-      }
-
-      final response = await http.post(
-        Uri.parse('$baseUrl/farms'),
-        headers: {
-          'Authorization': 'Bearer $token',
-          'Content-Type': 'application/json',
-        },
-        body: jsonEncode({
-          'farm_name': farmName,
-          'farm_location': farmLocation,
-          'farm_description': farmDescription,
-        }),
-      );
-
-      final data = jsonDecode(response.body);
-
-      if (response.statusCode == 200) {
-        return {'success': true, 'message': data['message']};
-      } else {
-        return {
-          'success': false,
-          'message': data['detail'] ?? '농장 등록 실패',
-        };
-      }
-    } catch (e) {
-      return {'success': false, 'message': '서버 연결 실패: $e'};
-    }
-  }
-
-  static Future<Map<String, dynamic>> updateFarm({
-    required int farmId,
-    required String farmName,
-    String? farmLocation,
-    String? farmDescription,
-  }) async {
+static Future<Map<String, dynamic>> createFarm({
+  required String farmName,
+  required String farmLocation,
+  String? farmDescription,
+  String? farmImagePath,
+}) async {
+  try {
     final token = await _getToken();
+    if (token == null) {
+      return {'success': false, 'message': '토큰이 없습니다.'};
+    }
 
-    final response = await http.patch(
-      Uri.parse('$baseUrl/farms/$farmId'),
-      headers: {
-        'Authorization': 'Bearer $token',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'farm_name': farmName,
-        'farm_location': farmLocation,
-        'farm_description': farmDescription,
-      }),
+    final request = http.MultipartRequest(
+      'POST',
+      Uri.parse('$baseUrl/farms'),
     );
 
-    final data = jsonDecode(response.body);
+    request.headers['Authorization'] = 'Bearer $token';
 
-    if (response.statusCode == 200) {
-      return {'success': true, 'message': data['message']};
+    request.fields['farm_name'] = farmName;
+    request.fields['farm_location'] = farmLocation;
+
+    if (farmDescription != null && farmDescription.isNotEmpty) {
+      request.fields['farm_description'] = farmDescription;
     }
 
-    return {'success': false, 'message': data['detail'] ?? '농장 수정 실패'};
+    if (farmImagePath != null && farmImagePath.isNotEmpty) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'farm_image',
+          farmImagePath,
+        ),
+      );
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 200) {
+      return {
+        'success': true,
+        'message': data['message'] ?? '농장이 등록되었습니다.',
+        'data': data['data'],
+      };
+    }
+
+    return {
+      'success': false,
+      'message': data['detail'] ?? '농장 등록 실패',
+    };
+  } catch (e) {
+    return {'success': false, 'message': '서버 연결 실패: $e'};
   }
+}
+
+static Future<Map<String, dynamic>> updateFarm({
+  required int farmId,
+  required String farmName,
+  required String farmLocation,
+  String? farmDescription,
+  String? farmImagePath,
+}) async {
+  try {
+    final token = await _getToken();
+    if (token == null) {
+      return {'success': false, 'message': '토큰이 없습니다.'};
+    }
+
+    final request = http.MultipartRequest(
+      'PATCH',
+      Uri.parse('$baseUrl/farms/$farmId'),
+    );
+
+    request.headers['Authorization'] = 'Bearer $token';
+
+    request.fields['farm_name'] = farmName;
+    request.fields['farm_location'] = farmLocation;
+
+    if (farmDescription != null && farmDescription.isNotEmpty) {
+      request.fields['farm_description'] = farmDescription;
+    }
+
+    if (farmImagePath != null && farmImagePath.isNotEmpty) {
+      request.files.add(
+        await http.MultipartFile.fromPath(
+          'farm_image',
+          farmImagePath,
+        ),
+      );
+    }
+
+    final streamedResponse = await request.send();
+    final response = await http.Response.fromStream(streamedResponse);
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 200) {
+      return {
+        'success': true,
+        'message': data['message'] ?? '농장 정보가 수정되었습니다.',
+        'data': data['data'],
+      };
+    }
+
+    return {
+      'success': false,
+      'message': data['detail'] ?? '농장 수정 실패',
+    };
+  } catch (e) {
+    return {'success': false, 'message': '서버 연결 실패: $e'};
+  }
+}
 
   static Future<Map<String, dynamic>> deleteFarm(int farmId) async {
     final token = await _getToken();
@@ -361,5 +405,27 @@ class FarmService {
     } catch (e) {
       return {'success': false, 'message': '서버 연결 실패: $e'};
     }
+  }
+  static Future<Map<String, dynamic>> getShareConsent(int farmId) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/farms/$farmId/share-consent'),
+      headers: {
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 200) {
+      return data;
+    }
+
+    return {
+      'success': false,
+      'message': data['detail'] ?? '공유 설정을 불러오지 못했습니다.',
+    };
   }
 }

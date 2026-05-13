@@ -81,6 +81,36 @@ class _FarmListScreenState extends State<FarmListScreen> {
     await loadFarms();
   }
 
+  String? _farmImageUrl(Map<String, dynamic> farm) {
+    final imagePath = farm['farm_image_path']?.toString();
+
+    if (imagePath == null || imagePath.isEmpty) {
+      return null;
+    }
+
+    return '${FarmService.baseUrl}/$imagePath';
+  }
+
+  Widget _buildFarmImage(Map<String, dynamic> farm) {
+    final imageUrl = _farmImageUrl(farm);
+
+    if (imageUrl == null) {
+      return const CircleAvatar(
+        radius: 28,
+        backgroundColor: Color(0xFFEAF6EE),
+        child: Text('🌱', style: TextStyle(fontSize: 26)),
+      );
+    }
+
+    return CircleAvatar(
+      radius: 28,
+      backgroundColor: const Color(0xFFEAF6EE),
+      backgroundImage: NetworkImage(imageUrl),
+      onBackgroundImageError: (_, __) {},
+      child: null,
+    );
+  }
+
   Widget _buildEmptyView() {
     return Center(
       child: message.isNotEmpty
@@ -118,11 +148,7 @@ class _FarmListScreenState extends State<FarmListScreen> {
         onTap: () => moveToZoneList(farm),
         child: Row(
           children: [
-            const CircleAvatar(
-              radius: 28,
-              backgroundColor: Color(0xFFEAF6EE),
-              child: Text('🌱', style: TextStyle(fontSize: 26)),
-            ),
+            _buildFarmImage(farm),
             const SizedBox(width: 16),
             Expanded(
               child: Column(

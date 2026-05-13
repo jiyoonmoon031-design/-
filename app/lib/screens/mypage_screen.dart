@@ -14,6 +14,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
   Map<String, dynamic>? userInfo;
   bool isLoading = true;
   bool isLoggingOut = false;
+  bool isChangingRole = false;
   String message = '';
 
   final Color mainGreen = const Color(0xFF6FAF7D);
@@ -46,6 +47,99 @@ class _MyPageScreenState extends State<MyPageScreen> {
         userInfo = null;
         isLoading = false;
         message = '사용자 정보를 불러오지 못했습니다.';
+      });
+    }
+  }
+
+  Future<void> changeRole() async {
+    final currentRole = userInfo?['user_role']?.toString();
+
+    final selectedRole = await showDialog<String>(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text('역할 변경'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<String>(
+                title: const Text('일반 사용자'),
+                subtitle: const Text('개인 진단 기록을 관리합니다.'),
+                value: 'GENERAL_USER',
+                groupValue: currentRole,
+                activeColor: mainGreen,
+                onChanged: (value) => Navigator.pop(context, value),
+              ),
+              RadioListTile<String>(
+                title: const Text('농장 관리자'),
+                subtitle: const Text('농장과 구역을 관리합니다.'),
+                value: 'FARM_MANAGER',
+                groupValue: currentRole,
+                activeColor: mainGreen,
+                onChanged: (value) => Navigator.pop(context, value),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: const Text('취소'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (selectedRole == null || selectedRole == currentRole) return;
+
+    setState(() {
+      isChangingRole = true;
+    });
+
+    try {
+      final result = await AuthService.updateMyRole(selectedRole);
+    
+      if (!mounted) return;
+
+      if (result['success'] == true) {
+        final prefs = await SharedPreferences.getInstance();
+        await prefs.remove('access_token');
+
+        if (!mounted) return;
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('역할이 변경되었습니다. 다시 로그인해주세요.'),
+          ),
+        );
+
+        Navigator.pushAndRemoveUntil(
+          context,
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      } else {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(result['message'] ?? '역할 변경에 실패했습니다.'),
+          ),
+        );
+
+        setState(() {
+          isChangingRole = false;
+        });
+      }
+    } catch (e) {
+      if (!mounted) return;
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('역할 변경 중 오류가 발생했습니다.'),
+        ),
+      );
+
+      setState(() {
+        isChangingRole = false;
       });
     }
   }
@@ -149,7 +243,7 @@ class _MyPageScreenState extends State<MyPageScreen> {
           const SizedBox(width: 12),
           const Expanded(
             child: Text(
-              '내 계정 정보와 역할을 확인하고 로그아웃할 수 있어요.',
+              '내 계정 정보와 역할을 확인하고 변경할 수 있어요.',
               style: TextStyle(
                 fontSize: 14,
                 height: 1.45,
@@ -285,6 +379,42 @@ class _MyPageScreenState extends State<MyPageScreen> {
               value: roleLabel(userInfo!['user_role']?.toString()),
               icon: Icons.admin_panel_settings_outlined,
             ),
+
+            SizedBox(
+              width: double.infinity,
+              height: 52,
+              child: OutlinedButton.icon(
+                onPressed: isChangingRole ? null : changeRole,
+                icon: isChangingRole
+                    ? SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: mainGreen,
+                        ),
+                      )
+                    : Icon(Icons.swap_horiz, color: mainGreen),
+                label: Text(
+                  isChangingRole ? '역할 변경 중...' : '역할 변경',
+                  style: TextStyle(
+                    color: mainGreen,
+                    fontSize: 16,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                style: OutlinedButton.styleFrom(
+                  side: BorderSide(color: mainGreen),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  backgroundColor: Colors.white,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 14),
+
             _buildInfoTile(
               label: '상태',
               value: statusLabel(userInfo!['account_status']?.toString()),

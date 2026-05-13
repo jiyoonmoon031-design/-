@@ -3,7 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 
 class AuthService {
-  static const String baseUrl = 'http://127.0.0.1:8000'; 
+  static const String baseUrl = 'http://10.0.2.2:8000'; 
   // Android Emulator 기준
   // 실제 폰이면 PC IP로 바꿔야 함
 
@@ -96,5 +96,35 @@ class AuthService {
       return jsonDecode(response.body);
     }
     return null;
+  }
+  static Future<Map<String, dynamic>> updateMyRole(String userRole) async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    final response = await http.patch(
+      Uri.parse('$baseUrl/users/me/role'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+      body: jsonEncode({
+        'user_role': userRole,
+      }),
+    );
+
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+    if (response.statusCode == 200) {
+      return {
+        'success': true,
+        'message': data['message'] ?? '역할이 변경되었습니다.',
+        'data': data['data'],
+      };
+    }
+
+    return {
+      'success': false,
+      'message': data['detail'] ?? '역할 변경에 실패했습니다.',
+    };
   }
 }

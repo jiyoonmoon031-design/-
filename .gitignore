@@ -51,3 +51,5 @@ Thumbs.db
 
 backend/uploads/
 backend/static/uploads/
+firebase-service-account.json
+app/android/app/google-services.json

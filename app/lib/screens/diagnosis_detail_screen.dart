@@ -16,9 +16,7 @@ class DiagnosisDetailScreen extends StatefulWidget {
 class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
   Map<String, dynamic>? detailData;
   bool isLoading = true;
-  bool isUpdating = false;
   String message = '';
-  String selectedActionStatus = 'PENDING';
 
   @override
   void initState() {
@@ -43,7 +41,6 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
         isLoading = false;
         if (result['success'] == true) {
           detailData = result['data'];
-          selectedActionStatus = detailData?['action_status'] ?? 'PENDING';
         } else {
           detailData = null;
           message = result['message'] ?? '상세 정보를 불러올 수 없습니다.';
@@ -56,45 +53,6 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
         isLoading = false;
         detailData = null;
         message = '상세 정보를 불러오는 중 오류가 발생했습니다.';
-      });
-    }
-  }
-
-  Future<void> updateActionStatus() async {
-    setState(() {
-      isUpdating = true;
-    });
-
-    try {
-      final result = await DiagnosisHistoryService.updateActionStatus(
-        diagnosisId: widget.diagnosisId,
-        actionStatus: selectedActionStatus,
-      );
-
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(result['message'] ?? '처리 완료'),
-        ),
-      );
-
-      if (result['success'] == true) {
-        await loadDetail();
-      }
-    } catch (e) {
-      if (!mounted) return;
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('조치 상태 변경 중 오류가 발생했습니다.'),
-        ),
-      );
-    } finally {
-      if (!mounted) return;
-
-      setState(() {
-        isUpdating = false;
       });
     }
   }
@@ -383,77 +341,6 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
     );
   }
 
-  Widget _buildActionStatusSection() {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(14),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text(
-            '조치 상태 변경',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          const SizedBox(height: 12),
-          DropdownButtonFormField<String>(
-            value: selectedActionStatus,
-            decoration: InputDecoration(
-              labelText: '조치 상태',
-              prefixIcon: const Icon(Icons.task_alt_outlined),
-              border: OutlineInputBorder(
-                borderRadius: BorderRadius.circular(12),
-              ),
-            ),
-            items: const [
-              DropdownMenuItem(
-                value: 'PENDING',
-                child: Text('미조치'),
-              ),
-              DropdownMenuItem(
-                value: 'COMPLETED',
-                child: Text('조치 완료'),
-              ),
-            ],
-            onChanged: isUpdating
-                ? null
-                : (value) {
-                    setState(() {
-                      selectedActionStatus = value ?? 'PENDING';
-                    });
-                  },
-          ),
-          const SizedBox(height: 12),
-          SizedBox(
-            width: double.infinity,
-            height: 50,
-            child: ElevatedButton(
-              onPressed: isUpdating ? null : updateActionStatus,
-              style: ElevatedButton.styleFrom(
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-              ),
-              child: isUpdating
-                  ? const SizedBox(
-                      width: 20,
-                      height: 20,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Text('조치 상태 변경'),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
   Widget _buildErrorState() {
     return Center(
       child: Padding(
@@ -530,6 +417,17 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
                 label: '진단 시각',
                 value: _formatDate(detailData!['diagnosed_at']?.toString()),
               ),
+              if (detailData!['farm_name'] != null)
+                _buildInfoTile(
+                  label: '농장',
+                  value: '${detailData!['farm_name']}',
+                ),
+
+              if (detailData!['zone_name'] != null)
+                _buildInfoTile(
+                  label: '구역',
+                  value: '${detailData!['zone_name']}',
+                ),
 
               const SizedBox(height: 10),
               _buildSectionTitle('추천 조치'),
@@ -577,9 +475,6 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
               _buildSectionTitle('Bounding Box 목록'),
               const SizedBox(height: 12),
               _buildDetectionSection(),
-
-              const SizedBox(height: 20),
-              _buildActionStatusSection(),
               const SizedBox(height: 8),
             ],
           ),

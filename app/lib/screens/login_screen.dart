@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 import '../services/auth_service.dart';
+import '../services/alert_service.dart';
+
 import 'signup_screen.dart';
 import 'general_home_screen.dart';
 import 'manager_home_screen.dart';
@@ -28,6 +32,22 @@ class _LoginScreenState extends State<LoginScreen> {
     super.dispose();
   }
 
+  Future<void> saveFcmTokenAfterLogin() async {
+    try {
+      FirebaseMessaging messaging = FirebaseMessaging.instance;
+
+      await messaging.requestPermission();
+
+      final token = await messaging.getToken();
+      print('FCM TOKEN: $token');
+      if (token != null) {
+        await AlertService.saveFcmToken(token);
+      }
+    } catch (e) {
+      debugPrint('FCM 토큰 저장 실패: $e');
+    }
+  }
+
   Future<void> login() async {
     FocusScope.of(context).unfocus();
 
@@ -53,6 +73,10 @@ class _LoginScreenState extends State<LoginScreen> {
 
       if (result['success'] == true) {
         final userRole = result['user']['user_role'];
+
+        await saveFcmTokenAfterLogin();
+
+        if (!mounted) return;
 
         if (userRole == 'GENERAL_USER') {
           Navigator.pushReplacement(
@@ -131,7 +155,6 @@ class _LoginScreenState extends State<LoginScreen> {
                     color: mainGreen,
                   ),
                   const SizedBox(height: 16),
-
                   const Text(
                     'CropCare',
                     textAlign: TextAlign.center,
@@ -141,9 +164,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Colors.black,
                     ),
                   ),
-
                   const SizedBox(height: 8),
-
                   const Text(
                     '작물 진단과 관리를 더 간편하게',
                     textAlign: TextAlign.center,
@@ -152,9 +173,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       color: Colors.black54,
                     ),
                   ),
-
                   const SizedBox(height: 32),
-
                   TextField(
                     controller: emailController,
                     keyboardType: TextInputType.emailAddress,
@@ -171,9 +190,7 @@ class _LoginScreenState extends State<LoginScreen> {
                       }
                     },
                   ),
-
                   const SizedBox(height: 14),
-
                   TextField(
                     controller: passwordController,
                     obscureText: obscurePassword,
@@ -208,7 +225,6 @@ class _LoginScreenState extends State<LoginScreen> {
                       }
                     },
                   ),
-
                   if (errorMessage.isNotEmpty)
                     Padding(
                       padding: const EdgeInsets.only(top: 14),
@@ -217,9 +233,7 @@ class _LoginScreenState extends State<LoginScreen> {
                         style: const TextStyle(color: Colors.red),
                       ),
                     ),
-
                   const SizedBox(height: 18),
-
                   SizedBox(
                     height: 54,
                     width: double.infinity,
@@ -242,9 +256,7 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                     ),
                   ),
-
                   const SizedBox(height: 14),
-
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [

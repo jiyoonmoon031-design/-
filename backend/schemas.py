@@ -42,19 +42,10 @@ class FarmResponse(BaseModel):
     farm_name: str
     farm_location: str | None = None
     farm_description: str | None = None
+    farm_image_path: str | None = None
     latitude: float | None = None
     longitude: float | None = None
     public_region_label: str | None = None
-
-class FarmCreateRequest(BaseModel): #농장 등록 요청
-    farm_name: str
-    farm_location: str | None = None
-    farm_description: str | None = None
-
-class FarmUpdateRequest(BaseModel): #농장 수정 요청
-    farm_name: str
-    farm_location: str | None = None
-    farm_description: str | None = None
 
 class FarmSaveResponse(BaseModel): #농장 수정/등록 응답
     success: bool
@@ -66,6 +57,10 @@ class FarmListItem(BaseModel):
     farm_name: str
     farm_location: str | None = None
     farm_description: str | None = None
+    farm_image_path: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
+    public_region_label: str | None = None
 
 class FarmListResponse(BaseModel): #농장 조회 응답
     success: bool
@@ -147,6 +142,10 @@ class DiagnosisHistoryResponse(BaseModel): #진단이력 응답
     data: list[DiagnosisHistoryItem]
 
 class DiagnosisDetailResponse(BaseModel):
+    farm_id: int | None = None
+    farm_name: str | None = None
+    zone_id: int | None = None
+    zone_name: str | None = None
     success: bool
     data: DiagnosisResponse
 
@@ -176,8 +175,10 @@ class CropGroupKPI(GroupKPI):
 
 class ZoneGroupKPI(GroupKPI):
     farm_id: int
+    farm_name: str | None = None
     zone_id: int
     zone_name: str
+    zone_crop_name: str | None = None
     crop_name: str
 
 class GroupKPIResponse(BaseModel):
@@ -224,6 +225,7 @@ class CreateTreatmentAlertRequest(BaseModel):
 
 class RespondTreatmentAlertRequest(BaseModel):
     alert_response: str
+    next_scheduled_at: datetime | None = None
 
 class CalendarEventItem(BaseModel):
     event_id: int
@@ -270,19 +272,6 @@ class NearbyBaseFarm(BaseModel):
     public_region_label: str | None = None
     share_consent_level: str
 
-
-class NearbyZoneRisk(BaseModel):
-    zone_id: int
-    zone_name_or_code: str
-    crop_name: str | None = None
-    total_diagnosis_count: int
-    disease_count: int
-    disease_ratio: float
-    risk_level: str
-    risk_label: str
-    data_status: str
-
-
 class NearbyFarmItem(BaseModel):
     farm_id: int
     farm_name: str
@@ -292,9 +281,6 @@ class NearbyFarmItem(BaseModel):
     public_region_label: str | None = None
     share_consent_level: str
     crop_names: list[str]
-    disease_names: list[str]
-    recent_status_summary: str
-    zone_risks: list[NearbyZoneRisk]
 
 
 class NearbyFarmsData(BaseModel):
@@ -365,3 +351,7 @@ class NearbyFarmRiskDetailData(BaseModel):
 class NearbyFarmRiskDetailResponse(BaseModel):
     success: bool
     data: NearbyFarmRiskDetailData
+
+class FcmTokenRequest(BaseModel):
+    fcm_token: str
+    platform: str | None = None

@@ -1,4 +1,8 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
+import 'package:image_picker/image_picker.dart';
+
 import '../services/farm_service.dart';
 
 class FarmEditScreen extends StatefulWidget {
@@ -17,6 +21,8 @@ class _FarmEditScreenState extends State<FarmEditScreen> {
   late TextEditingController farmNameController;
   late TextEditingController farmLocationController;
   late TextEditingController farmDescriptionController;
+
+  File? selectedImage;
 
   bool isSaving = false;
   String message = '';
@@ -42,6 +48,31 @@ class _FarmEditScreenState extends State<FarmEditScreen> {
     farmLocationController.dispose();
     farmDescriptionController.dispose();
     super.dispose();
+  }
+
+  String? get currentImageUrl {
+    final imagePath = widget.farm['farm_image_path']?.toString();
+
+    if (imagePath == null || imagePath.isEmpty) {
+      return null;
+    }
+
+    return '${FarmService.baseUrl}/$imagePath';
+  }
+
+  Future<void> pickImage() async {
+    final picker = ImagePicker();
+
+    final picked = await picker.pickImage(
+      source: ImageSource.gallery,
+      imageQuality: 80,
+    );
+
+    if (picked == null) return;
+
+    setState(() {
+      selectedImage = File(picked.path);
+    });
   }
 
   Future<void> updateFarm() async {
@@ -75,6 +106,7 @@ class _FarmEditScreenState extends State<FarmEditScreen> {
       farmName: farmName,
       farmLocation: farmLocation,
       farmDescription: farmDescription.isEmpty ? null : farmDescription,
+      farmImagePath: selectedImage?.path,
     );
 
     if (!mounted) return;
@@ -130,6 +162,126 @@ class _FarmEditScreenState extends State<FarmEditScreen> {
     if (result['success'] == true) {
       Navigator.pop(context, true);
     }
+  }
+
+  Widget _buildImagePicker() {
+    final imageUrl = currentImageUrl;
+
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 18),
+      child: GestureDetector(
+        onTap: isSaving ? null : pickImage,
+        child: Container(
+          height: 180,
+          width: double.infinity,
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: Colors.grey.shade300),
+          ),
+          child: selectedImage != null
+              ? Stack(
+                  children: [
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(18),
+                      child: Image.file(
+                        selectedImage!,
+                        width: double.infinity,
+                        height: double.infinity,
+                        fit: BoxFit.cover,
+                      ),
+                    ),
+                    _buildRemoveSelectedImageButton(),
+                  ],
+                )
+              : imageUrl != null
+                  ? Stack(
+                      children: [
+                        ClipRRect(
+                          borderRadius: BorderRadius.circular(18),
+                          child: Image.network(
+                            imageUrl,
+                            width: double.infinity,
+                            height: double.infinity,
+                            fit: BoxFit.cover,
+                            errorBuilder: (context, error, stackTrace) {
+                              return _buildEmptyImagePickerContent();
+                            },
+                          ),
+                        ),
+                        Positioned(
+                          right: 10,
+                          bottom: 10,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 10,
+                              vertical: 6,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(0.45),
+                              borderRadius: BorderRadius.circular(20),
+                            ),
+                            child: const Text(
+                              '이미지 변경',
+                              style: TextStyle(
+                                color: Colors.white,
+                                fontSize: 12,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    )
+                  : _buildEmptyImagePickerContent(),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildEmptyImagePickerContent() {
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: const [
+        Icon(
+          Icons.add_photo_alternate_outlined,
+          size: 46,
+          color: Color(0xFF6FAF7D),
+        ),
+        SizedBox(height: 10),
+        Text(
+          '농장 이미지 선택',
+          style: TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: Colors.black54,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildRemoveSelectedImageButton() {
+    return Positioned(
+      right: 10,
+      top: 10,
+      child: Container(
+        decoration: BoxDecoration(
+          color: Colors.black.withOpacity(0.45),
+          shape: BoxShape.circle,
+        ),
+        child: IconButton(
+          onPressed: () {
+            setState(() {
+              selectedImage = null;
+            });
+          },
+          icon: const Icon(
+            Icons.close,
+            color: Colors.white,
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildTextField({
@@ -246,6 +398,7 @@ class _FarmEditScreenState extends State<FarmEditScreen> {
       body: ListView(
         padding: const EdgeInsets.all(18),
         children: [
+          _buildImagePicker(),
           _buildTextField(
             controller: farmNameController,
             label: '농장 이름 *',

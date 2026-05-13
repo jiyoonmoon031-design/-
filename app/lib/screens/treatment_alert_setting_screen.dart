@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../services/calendar_service.dart';
+import '../services/alert_service.dart';
 
 class TreatmentAlertSettingScreen extends StatefulWidget {
   final int diagnosisId;
@@ -18,35 +18,33 @@ class _TreatmentAlertSettingScreenState
     extends State<TreatmentAlertSettingScreen> {
   bool isLoading = false;
 
-  String selectedPeriod = 'AM';
+  int selectedYear = DateTime.now().year;
+  int selectedMonth = DateTime.now().month;
+  int selectedDay = DateTime.now().add(const Duration(days: 1)).day;
   int selectedHour = 9;
   int selectedMinute = 0;
 
-  DateTime get tomorrow {
-    final now = DateTime.now();
-    return DateTime(now.year, now.month, now.day + 1);
-  }
-
   Future<void> saveAlert() async {
+    final scheduledDateTime = DateTime(
+      selectedYear,
+      selectedMonth,
+      selectedDay,
+      selectedHour,
+      selectedMinute,
+    );
+
+    if (scheduledDateTime.isBefore(DateTime.now())) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('현재 시간 이후로 알림 시간을 설정해주세요.')),
+      );
+      return;
+    }
+
     setState(() {
       isLoading = true;
     });
 
-    final hour24 = selectedPeriod == 'AM'
-        ? selectedHour
-        : selectedHour == 12
-            ? 12
-            : selectedHour + 12;
-
-    final scheduledDateTime = DateTime(
-      tomorrow.year,
-      tomorrow.month,
-      tomorrow.day,
-      hour24,
-      selectedMinute,
-    );
-
-    final result = await CalendarService.createTreatmentAlert(
+    final result = await AlertService.createTreatmentAlert(
       diagnosisId: widget.diagnosisId,
       scheduledAt: scheduledDateTime.toIso8601String(),
     );
@@ -59,7 +57,7 @@ class _TreatmentAlertSettingScreenState
 
     if (result['success'] == true) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('알림이 설정되었습니다.')),
+        const SnackBar(content: Text('나중에 알림이 설정되었습니다.')),
       );
       Navigator.pop(context, true);
     } else {
@@ -69,9 +67,52 @@ class _TreatmentAlertSettingScreenState
     }
   }
 
+  List<int> get days {
+    final lastDay = DateTime(selectedYear, selectedMonth + 1, 0).day;
+    return List.generate(lastDay, (index) => index + 1);
+  }
+
+  Widget buildDropdown({
+    required String label,
+    required int value,
+    required List<int> items,
+    required void Function(int value) onChanged,
+  }) {
+    return DropdownButtonFormField<int>(
+      value: items.contains(value) ? value : items.first,
+      decoration: InputDecoration(
+        labelText: label,
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(14),
+        ),
+      ),
+      items: items.map((item) {
+        return DropdownMenuItem(
+          value: item,
+          child: Text('$item'),
+        );
+      }).toList(),
+      onChanged: (value) {
+        if (value == null) return;
+        onChanged(value);
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
-    final dateText = '${tomorrow.year}년 ${tomorrow.month}월 ${tomorrow.day}일';
+    final selectedDateText =
+        '$selectedYear년 $selectedMonth월 $selectedDay일 '
+        '${selectedHour.toString().padLeft(2, '0')}:'
+        '${selectedMinute.toString().padLeft(2, '0')}';
+
+    final now = DateTime.now();
+
+    final yearItems = List.generate(3, (index) => now.year + index);
+    final monthItems = List.generate(12, (index) => index + 1);
+    final dayItems = days;
+    final hourItems = List.generate(24, (index) => index);
+    final minuteItems = List.generate(60, (index) => index);
 
     return Scaffold(
       appBar: AppBar(
@@ -79,7 +120,7 @@ class _TreatmentAlertSettingScreenState
         centerTitle: true,
       ),
       body: SafeArea(
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(20),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -92,7 +133,7 @@ class _TreatmentAlertSettingScreenState
                   border: Border.all(color: Colors.green.shade100),
                 ),
                 child: Text(
-                  '$dateText에 조치 알림을 설정합니다.',
+                  '$selectedDateText에 조치 알림을 설정합니다.',
                   style: const TextStyle(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -104,32 +145,60 @@ class _TreatmentAlertSettingScreenState
               const SizedBox(height: 28),
 
               const Text(
-                '오전 / 오후',
+                '날짜 선택',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
+
               const SizedBox(height: 12),
 
               Row(
                 children: [
                   Expanded(
-                    child: ChoiceChip(
-                      label: const Center(child: Text('오전')),
-                      selected: selectedPeriod == 'AM',
-                      onSelected: (_) {
+                    child: buildDropdown(
+                      label: '년',
+                      value: selectedYear,
+                      items: yearItems,
+                      onChanged: (value) {
                         setState(() {
-                          selectedPeriod = 'AM';
+                          selectedYear = value;
+
+                          final lastDay =
+                              DateTime(selectedYear, selectedMonth + 1, 0).day;
+                          if (selectedDay > lastDay) {
+                            selectedDay = lastDay;
+                          }
                         });
                       },
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: ChoiceChip(
-                      label: const Center(child: Text('오후')),
-                      selected: selectedPeriod == 'PM',
-                      onSelected: (_) {
+                    child: buildDropdown(
+                      label: '월',
+                      value: selectedMonth,
+                      items: monthItems,
+                      onChanged: (value) {
                         setState(() {
-                          selectedPeriod = 'PM';
+                          selectedMonth = value;
+
+                          final lastDay =
+                              DateTime(selectedYear, selectedMonth + 1, 0).day;
+                          if (selectedDay > lastDay) {
+                            selectedDay = lastDay;
+                          }
+                        });
+                      },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: buildDropdown(
+                      label: '일',
+                      value: selectedDay,
+                      items: dayItems,
+                      onChanged: (value) {
+                        setState(() {
+                          selectedDay = value;
                         });
                       },
                     ),
@@ -143,52 +212,30 @@ class _TreatmentAlertSettingScreenState
                 '시간 선택',
                 style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
               ),
+
               const SizedBox(height: 12),
 
               Row(
                 children: [
                   Expanded(
-                    child: DropdownButtonFormField<int>(
+                    child: buildDropdown(
+                      label: '시',
                       value: selectedHour,
-                      decoration: InputDecoration(
-                        labelText: '시',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      items: List.generate(12, (index) {
-                        final hour = index + 1;
-                        return DropdownMenuItem(
-                          value: hour,
-                          child: Text('$hour시'),
-                        );
-                      }),
+                      items: hourItems,
                       onChanged: (value) {
-                        if (value == null) return;
                         setState(() {
                           selectedHour = value;
                         });
                       },
                     ),
                   ),
-                  const SizedBox(width: 12),
+                  const SizedBox(width: 10),
                   Expanded(
-                    child: DropdownButtonFormField<int>(
+                    child: buildDropdown(
+                      label: '분',
                       value: selectedMinute,
-                      decoration: InputDecoration(
-                        labelText: '분',
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(14),
-                        ),
-                      ),
-                      items: [0, 10, 20, 30, 40, 50].map((minute) {
-                        return DropdownMenuItem(
-                          value: minute,
-                          child: Text('${minute.toString().padLeft(2, '0')}분'),
-                        );
-                      }).toList(),
+                      items: minuteItems,
                       onChanged: (value) {
-                        if (value == null) return;
                         setState(() {
                           selectedMinute = value;
                         });
@@ -198,7 +245,7 @@ class _TreatmentAlertSettingScreenState
                 ],
               ),
 
-              const Spacer(),
+              const SizedBox(height: 36),
 
               SizedBox(
                 height: 54,

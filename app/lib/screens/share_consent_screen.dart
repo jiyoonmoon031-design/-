@@ -39,7 +39,7 @@ class _ShareConsentScreenState extends State<ShareConsentScreen> {
 
         if (farms.isNotEmpty) {
           selectedFarmId = farms.first["farm_id"];
-          await loadZones(selectedFarmId!);
+          await loadShareConsent(selectedFarmId!);
         }
       } else {
         setState(() {
@@ -58,7 +58,7 @@ class _ShareConsentScreenState extends State<ShareConsentScreen> {
     }
   }
 
-  Future<void> loadZones(int farmId) async {
+  Future<void> loadShareConsent(int farmId) async {
     setState(() {
       isZoneLoading = true;
       zones = [];
@@ -66,26 +66,28 @@ class _ShareConsentScreenState extends State<ShareConsentScreen> {
     });
 
     try {
-      final result = await FarmService.getZones(farmId);
+      final result = await FarmService.getShareConsent(farmId);
 
       if (!mounted) return;
 
       if (result['success'] == true) {
-        setState(() {
-          zones = result['data'] ?? [];
-          isZoneLoading = false;
+        final data = result['data'];
+        final loadedZones = data['zones'] ?? [];
 
-          if (selectedLevel == "FULL_PUBLIC") {
-            selectedZoneIds = zones
-                .map<int>((zone) => zone["zone_id"] as int)
-                .toSet();
-          }
+        setState(() {
+          selectedLevel = data['share_consent_level'] ?? 'PRIVATE';
+          zones = loadedZones;
+          selectedZoneIds = loadedZones
+              .where((zone) => zone['share_enabled_flag'] == true)
+              .map<int>((zone) => zone['zone_id'] as int)
+              .toSet();
+          isZoneLoading = false;
         });
       } else {
         setState(() {
           isZoneLoading = false;
         });
-        showMessage(result['message'] ?? "구역 목록을 불러오지 못했습니다.");
+        showMessage(result['message'] ?? "공유 설정을 불러오지 못했습니다.");
       }
     } catch (e) {
       if (!mounted) return;
@@ -94,7 +96,7 @@ class _ShareConsentScreenState extends State<ShareConsentScreen> {
         isZoneLoading = false;
       });
 
-      showMessage("구역 목록을 불러오지 못했습니다.");
+      showMessage("공유 설정을 불러오지 못했습니다.");
     }
   }
 
@@ -252,7 +254,7 @@ class _ShareConsentScreenState extends State<ShareConsentScreen> {
                                 selectedFarmId = farmId;
                               });
 
-                              await loadZones(farmId);
+                              await loadShareConsent(farmId);
                             },
                     ),
 

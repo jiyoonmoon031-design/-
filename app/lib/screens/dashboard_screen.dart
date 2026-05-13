@@ -225,12 +225,15 @@ class _DashboardScreenState extends State<DashboardScreen> {
             ),
           ),
           if (trailing != null && trailing.isNotEmpty)
-            Text(
-              trailing,
-              style: TextStyle(
-                color: mainGreen,
-                fontWeight: FontWeight.bold,
-                fontSize: 13,
+            Flexible(
+              child: Text(
+                trailing,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: mainGreen,
+                  fontWeight: FontWeight.bold,
+                  fontSize: 13,
+                ),
               ),
             ),
         ],
@@ -392,17 +395,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
     return Expanded(
       child: Column(
         children: [
-          Text(
-            value,
-            style: TextStyle(
-              fontSize: 22,
-              color: color,
-              fontWeight: FontWeight.bold,
+          FittedBox(
+            child: Text(
+              value,
+              style: TextStyle(
+                fontSize: 22,
+                color: color,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
           const SizedBox(height: 8),
           Text(
             label,
+            textAlign: TextAlign.center,
             style: const TextStyle(
               color: Colors.black54,
               fontSize: 13,
@@ -434,7 +440,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
         crossAxisCount: 2,
         crossAxisSpacing: 14,
         mainAxisSpacing: 14,
-        childAspectRatio: 0.95,
+        childAspectRatio: 0.72,
       ),
       itemBuilder: (context, index) {
         final item = list[index];
@@ -443,12 +449,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         final cropName = item['crop_name'] ?? '-';
 
+        final farmName = item['farm_name'] ??
+            '농장 ${item['farm_id']}';
+
         final zoneName = item['zone_name'] ??
             item['zone_name_or_code'] ??
             '구역 ${item['zone_id']}';
 
-        final title =
-            userRole == 'FARM_MANAGER' ? '$zoneName | $cropName' : cropName;
+        final zoneCropName = item['zone_crop_name'] ??
+            item['crop_name'] ??
+            '-';
+
+        final title = userRole == 'FARM_MANAGER'
+            ? '$farmName\n$zoneName · $zoneCropName'
+            : cropName;
 
         return InkWell(
           borderRadius: BorderRadius.circular(14),
@@ -459,33 +473,34 @@ class _DashboardScreenState extends State<DashboardScreen> {
             await loadChart(item);
           },
           child: Container(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.all(14),
             decoration: _cardDecoration(selected: selected),
             child: Column(
+              mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Row(
                   children: [
                     Container(
-                      width: 44,
-                      height: 44,
+                      width: 38,
+                      height: 38,
                       decoration: BoxDecoration(
                         color: Colors.orange.shade50,
-                        borderRadius: BorderRadius.circular(14),
+                        borderRadius: BorderRadius.circular(12),
                       ),
                       child: Center(
                         child: Text(
-                          cropIcons[cropName] ?? '🌱',
-                          style: const TextStyle(fontSize: 23),
+                          cropIcons[userRole == 'FARM_MANAGER' ? zoneCropName : cropName] ?? '🌱',
+                          style: const TextStyle(fontSize: 21),
                         ),
                       ),
                     ),
-                    const SizedBox(width: 10),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
                         title,
                         style: const TextStyle(
-                          fontSize: 17,
+                          fontSize: 15,
                           fontWeight: FontWeight.bold,
                         ),
                         overflow: TextOverflow.ellipsis,
@@ -497,9 +512,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
                 const SizedBox(height: 6),
                 const Text(
                   '최근 30일',
-                  style: TextStyle(color: Colors.black54, fontSize: 12),
+                  style: TextStyle(color: Colors.black54, fontSize: 11),
                 ),
-                const SizedBox(height: 14),
+                const SizedBox(height: 8),
                 _kpiRow(
                   '평균 심각도',
                   _percentFromSeverity(item['average_severity']),
@@ -525,21 +540,27 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   Widget _kpiRow(String label, String value, Color color) {
     return Padding(
-      padding: const EdgeInsets.only(top: 8),
+      padding: const EdgeInsets.only(top: 6),
       child: Row(
         children: [
           Expanded(
             child: Text(
               label,
-              style: const TextStyle(color: Colors.black54, fontSize: 13),
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(color: Colors.black54, fontSize: 12),
             ),
           ),
-          Text(
-            value,
-            style: TextStyle(
-              color: color,
-              fontSize: 15,
-              fontWeight: FontWeight.bold,
+          const SizedBox(width: 4),
+          Flexible(
+            child: Text(
+              value,
+              overflow: TextOverflow.ellipsis,
+              textAlign: TextAlign.right,
+              style: TextStyle(
+                color: color,
+                fontSize: 14,
+                fontWeight: FontWeight.bold,
+              ),
             ),
           ),
         ],
@@ -749,7 +770,6 @@ class _DashboardScreenState extends State<DashboardScreen> {
                       }
 
                       final date = dateList[index];
-
                       final label =
                           date.length >= 10 ? date.substring(5) : date;
 

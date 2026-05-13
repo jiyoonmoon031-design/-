@@ -1,8 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 import 'mypage_screen.dart';
 import 'diagnosis_screen.dart';
 import 'diagnosis_history_screen.dart';
 import 'dashboard_screen.dart';
+import 'alert_response_screen.dart';
+import 'alert_list_screen.dart';
 
 class GeneralHomeScreen extends StatefulWidget {
   const GeneralHomeScreen({super.key});
@@ -23,6 +27,48 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
     '대시보드',
     '마이페이지',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _setupFcmListeners();
+  }
+
+  Future<void> _setupFcmListeners() async {
+    final initialMessage =
+        await FirebaseMessaging.instance.getInitialMessage();
+
+    if (initialMessage != null) {
+      _handleTreatmentAlert(initialMessage);
+    }
+
+    FirebaseMessaging.onMessageOpenedApp.listen(
+      (RemoteMessage message) {
+        _handleTreatmentAlert(message);
+      },
+    );
+  }
+
+  void _handleTreatmentAlert(RemoteMessage message) {
+    final data = message.data;
+
+    if (data['type'] == 'TREATMENT_ALERT') {
+      final alertId = int.tryParse(data['alert_id'] ?? '');
+
+      if (alertId == null) {
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AlertResponseScreen(
+            alertId: alertId,
+          ),
+        ),
+      );
+    }
+  }
 
   List<Widget> _buildScreens() {
     return [
@@ -45,6 +91,15 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
     });
   }
 
+  Future<void> _openAlertList() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AlertListScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screens = _buildScreens();
@@ -53,6 +108,12 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
       appBar: AppBar(
         title: Text(_titles[_currentIndex]),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_none),
+            onPressed: _openAlertList,
+          ),
+        ],
       ),
       body: IndexedStack(
         index: _currentIndex,

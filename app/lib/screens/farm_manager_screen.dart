@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
-
+import 'alert_response_screen.dart';
 import '../services/auth_service.dart';
-import '../services/calendar_service.dart';
+import '../services/alert_service.dart';
 import '../services/farm_service.dart';
 
 class FarmManagerScreen extends StatefulWidget {
@@ -125,7 +125,7 @@ class _FarmManagerScreenState extends State<FarmManagerScreen> {
       message = '';
     });
 
-    final result = await CalendarService.getTreatmentAlerts(
+    final result = await AlertService.getTreatmentAlerts(
       cropName: userRole == 'GENERAL_USER' ? selectedCrop : '',
       severityLevel: selectedSeverity,
       farmId: userRole == 'FARM_MANAGER' ? selectedFarmId : null,
@@ -511,7 +511,20 @@ class _FarmManagerScreenState extends State<FarmManagerScreen> {
             width: double.infinity,
             height: 52,
             child: ElevatedButton(
-              onPressed: () => _showStatusChangePanel(item),
+              onPressed: () async {
+                final changed = await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) => AlertResponseScreen(
+                      alertId: item['alert_id'],
+                    ),
+                  ),
+                );
+
+                if (changed == true) {
+                  await loadAlerts();
+                }
+              },
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.green.shade50,
                 foregroundColor: const Color(0xFF6FAF7D),
@@ -527,183 +540,6 @@ class _FarmManagerScreenState extends State<FarmManagerScreen> {
       ),
     );
   }
-
-  void _showStatusChangePanel(Map<String, dynamic> item) {
-    String period = 'PM';
-    int hour = 3;
-    int minute = 0;
-
-    showModalBottomSheet(
-      context: context,
-      isScrollControlled: true,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-      ),
-      builder: (context) {
-        return StatefulBuilder(
-          builder: (context, modalSetState) {
-            return Padding(
-              padding: EdgeInsets.fromLTRB(
-                24,
-                24,
-                24,
-                MediaQuery.of(context).viewInsets.bottom + 24,
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  _modalButton(
-                    label: '조치 완료',
-                    color: const Color(0xFF6FAF7D),
-                    textColor: Colors.white,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _respondAlert(item['alert_id'], 'COMPLETED');
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('권장 조치를 모두 완료했습니다'),
-                  ),
-                  const SizedBox(height: 16),
-                  _modalButton(
-                    label: '보류',
-                    color: Colors.grey.shade100,
-                    textColor: Colors.black87,
-                    onTap: () async {
-                      Navigator.pop(context);
-                      await _respondAlert(item['alert_id'], 'HOLD');
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text('조치를 일시적으로 보류합니다. 알림이 다시 오지 않습니다.'),
-                  ),
-                  const SizedBox(height: 16),
-                  _modalButton(
-                    label: '나중에 알림',
-                    color: Colors.blue.shade50,
-                    textColor: Colors.blue,
-                    onTap: () {},
-                  ),
-                  const SizedBox(height: 12),
-                  const Divider(),
-                  const SizedBox(height: 8),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '알림 시간 설정',
-                      style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          value: period,
-                          items: const [
-                            DropdownMenuItem(value: 'AM', child: Text('오전')),
-                            DropdownMenuItem(value: 'PM', child: Text('오후')),
-                          ],
-                          onChanged: (v) {
-                            modalSetState(() => period = v ?? 'PM');
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: hour,
-                          items: List.generate(12, (i) {
-                            final h = i + 1;
-                            return DropdownMenuItem(value: h, child: Text('$h'));
-                          }),
-                          onChanged: (v) {
-                            modalSetState(() => hour = v ?? 3);
-                          },
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: DropdownButtonFormField<int>(
-                          value: minute,
-                          items: [0, 10, 20, 30, 40, 50].map((m) {
-                            return DropdownMenuItem(
-                              value: m,
-                              child: Text(m.toString().padLeft(2, '0')),
-                            );
-                          }).toList(),
-                          onChanged: (v) {
-                            modalSetState(() => minute = v ?? 0);
-                          },
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 14),
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: ElevatedButton(
-                      onPressed: () async {
-                        Navigator.pop(context);
-                        await _respondAlert(item['alert_id'], 'REMIND_LATER');
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF6FAF7D),
-                        foregroundColor: Colors.white,
-                      ),
-                      child: const Text('설정 완료'),
-                    ),
-                  ),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  Widget _modalButton({
-    required String label,
-    required Color color,
-    required Color textColor,
-    required VoidCallback onTap,
-  }) {
-    return SizedBox(
-      width: double.infinity,
-      height: 56,
-      child: ElevatedButton(
-        onPressed: onTap,
-        style: ElevatedButton.styleFrom(
-          backgroundColor: color,
-          foregroundColor: textColor,
-          elevation: 0,
-        ),
-        child: Text(label, style: const TextStyle(fontSize: 18)),
-      ),
-    );
-  }
-
-  Future<void> _respondAlert(int alertId, String response) async {
-    final result = await CalendarService.respondAlert(
-      alertId: alertId,
-      alertResponse: response,
-    );
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(result['message'] ?? '처리되었습니다.')),
-    );
-
-    await loadAlerts();
-  }
-
   @override
   Widget build(BuildContext context) {
     return Container(

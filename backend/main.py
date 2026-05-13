@@ -1,11 +1,12 @@
 from fastapi import FastAPI, Depends, HTTPException, status, UploadFile, File, Form
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
+from fastapi.staticfiles import StaticFiles
 from sqlalchemy.orm import Session
 import os
 import shutil
 from uuid import uuid4
 from ai_service import request_ai_diagnosis
-from database import Base, engine, get_db
+from database import Base, engine, get_db,SessionLocal
 import models
 import schemas
 from security import hash_password, verify_password, create_access_token, verify_access_token
@@ -16,12 +17,106 @@ from utils.location_utils import calculate_distance_km
 from utils.location_utils import geocode_address, calculate_distance_km
 from sqlalchemy import or_
 from collections import Counter
+import firebase_admin
+from firebase_admin import credentials, messaging
+from apscheduler.schedulers.background import BackgroundScheduler
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+FIREBASE_CREDENTIAL_PATH = os.path.join(
+    BASE_DIR,
+    "firebase-service-account.json"
+)
+
+if not firebase_admin._apps:
+    cred = credentials.Certificate("firebase-service-account.json")
+    firebase_admin.initialize_app(cred)
 
 app = FastAPI() #백엔드 앱을 만드는 코드 @app.get, @app.post 이런식으로 붙여서 API를 만듬
+app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
 security = HTTPBearer() #토큰 인증방식 사용 즉, 로그인 후 받은 토큰을 Authorization: Bearer... 형태로 보냄
-
+scheduler = BackgroundScheduler()
 # 테이블 생성
 Base.metadata.create_all(bind=engine) #models.py에 정의한 테이블들을 실제 DB에 생성해주는 코드
+
+# FCM 푸시 발송 함수
+def send_treatment_push(
+    fcm_token: str,
+    alert_id: int,
+    diagnosis_id: int
+):
+    print("FCM 발송 시도")
+    print("토큰:", fcm_token)
+    print("alert_id:", alert_id)
+    print("diagnosis_id:", diagnosis_id)
+
+    try:
+        message = messaging.Message(
+            notification=messaging.Notification(
+                title="조치 알림",
+                body="설정한 병해 조치 시간이 되었습니다."
+            ),
+            data={
+                "type": "TREATMENT_ALERT",
+                "alert_id": str(alert_id),
+                "diagnosis_id": str(diagnosis_id),
+            },
+            token=fcm_token,
+        )
+
+        response = messaging.send(message)
+
+        print("FCM 발송 성공")
+        print("response:", response)
+
+        return response
+
+    except Exception as e:
+        print("FCM 발송 실패")
+        print(e)
+        return None
+
+def check_and_send_alerts():
+    db = SessionLocal()
+
+    try:
+        now = datetime.now()
+
+        alerts = db.query(models.TreatmentAlert).filter(
+            models.TreatmentAlert.alert_status == "SCHEDULED",
+            models.TreatmentAlert.scheduled_at <= now
+        ).all()
+
+        for alert in alerts:
+            tokens = db.query(models.UserFcmToken).filter(
+                models.UserFcmToken.user_id == alert.user_id
+            ).all()
+
+            for token in tokens:
+                send_treatment_push(
+                    fcm_token=token.fcm_token,
+                    alert_id=alert.alert_id,
+                    diagnosis_id=alert.diagnosis_id
+                )
+
+            alert.alert_status = "SENT"
+            alert.sent_at = now
+
+            if alert.alert_response is None:
+                alert.alert_response = "REMIND_LATER"
+
+        db.commit()
+
+    finally:
+        db.close()
+
+@app.on_event("startup")
+def start_scheduler():
+    scheduler.add_job(
+        check_and_send_alerts,
+        "interval",
+        minutes=1
+    )
+
+    scheduler.start()
 
 @app.exception_handler(RequestValidationError) #에러 등록 시스템, RequestValidationError: 입력값 검증 에러가 발생했을때 실행
 async def validation_exception_handler(request, exc):  #async def: 비동기로 실행되는 함수, 다른 일과 동시에 할 수 있음, request: 사용자 요청 정보(어떤 api 호출했는지 등), exc:발생한 에러 정보(어떤 에러인지 등)
@@ -196,6 +291,25 @@ def get_manager_zone_ids(db: Session, manager_user_id: int): #해당 농장 관�
 
     return [z.zone_id for z in zones] # zones 안에 있는 각 객체에서 zone_id만 뽑아서 리스트로 반환
 
+def apply_role_diagnosis_filter(query, db: Session, current_user: models.User): #역할별 필터링
+    if current_user.user_role == "GENERAL_USER": #일반사용자의 경우
+        return query.filter(
+            models.Diagnosis.user_id == current_user.user_id, #유저 아이디
+            models.Diagnosis.farm_id.is_(None), #농장이 없어야하고
+            models.Diagnosis.zone_id.is_(None) #구역이 없어야함
+        )
+
+    elif current_user.user_role == "FARM_MANAGER": #농장 관리자의 경우
+        manager_zone_ids = get_manager_zone_ids(db, current_user.user_id) #구역정보로 조회
+
+        if not manager_zone_ids: #구역 정보가 없을 경우
+            return None
+
+        return query.filter(
+            models.Diagnosis.zone_id.in_(manager_zone_ids)
+        )
+
+    return None
 
 @app.get("/users/me", response_model=schemas.UserMeResponse) #내 정보 조회, schemas.UserMeResponse 형식으로 입력받음
 def read_users_me(current_user: models.User = Depends(get_current_user)): #로그인한 사용자의 기본 정보를 불러옴
@@ -244,25 +358,51 @@ def update_user_role(  #사용자의 역할 정보 조회
     }
 
 #task--------------------------------추후에 위치 API과 연동하기---------------------------------- 
-@app.post("/farms",response_model=schemas.FarmSaveResponse)
+@app.post("/farms", response_model=schemas.FarmSaveResponse)
 def create_farm(
-    request: schemas.FarmCreateRequest,
+    farm_name: str = Form(...),
+    farm_location: str = Form(...),
+    farm_description: str | None = Form(None),
+    farm_image: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_farm_manager)
 ):
-    if not request.farm_name.strip():
+    if not farm_name.strip():
         raise HTTPException(status_code=400, detail="farm_name은 필수입니다.")
 
-    if not request.farm_location or not request.farm_location.strip():
+    if not farm_location or not farm_location.strip():
         raise HTTPException(status_code=400, detail="farm_location은 필수입니다.")
 
-    geo = geocode_address(request.farm_location)
+    farm_image_path = None
+
+    if farm_image is not None:
+        allowed_extensions = [".jpg", ".jpeg", ".png"]
+        ext = os.path.splitext(farm_image.filename)[1].lower()
+
+        if ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail="지원하지 않는 이미지 형식입니다."
+            )
+
+        os.makedirs("uploads/farms", exist_ok=True)
+
+        unique_filename = f"{uuid4()}{ext}"
+        save_path = os.path.join("uploads/farms", unique_filename)
+
+        with open(save_path, "wb") as buffer:
+            shutil.copyfileobj(farm_image.file, buffer)
+
+        farm_image_path = save_path.replace("\\", "/")
+
+    geo = geocode_address(farm_location)
 
     new_farm = models.Farm(
         manager_user_id=current_user.user_id,
-        farm_name=request.farm_name,
-        farm_location=request.farm_location,
-        farm_description=request.farm_description,
+        farm_name=farm_name,
+        farm_location=farm_location,
+        farm_description=farm_description,
+        farm_image_path=farm_image_path,
         share_consent_level="PRIVATE",
         latitude=geo["latitude"],
         longitude=geo["longitude"],
@@ -281,6 +421,7 @@ def create_farm(
             "farm_name": new_farm.farm_name,
             "farm_location": new_farm.farm_location,
             "farm_description": new_farm.farm_description,
+            "farm_image_path": new_farm.farm_image_path,
             "latitude": new_farm.latitude,
             "longitude": new_farm.longitude,
             "public_region_label": new_farm.public_region_label,
@@ -288,9 +429,8 @@ def create_farm(
         }
     }
 
-
-@app.get("/farms", response_model=schemas.FarmListResponse) #농장 조회, get: 조회
-def get_farms( #농장 정보 불러옴
+@app.get("/farms", response_model=schemas.FarmListResponse)
+def get_farms(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_farm_manager)
 ):
@@ -298,14 +438,18 @@ def get_farms( #농장 정보 불러옴
         models.Farm.manager_user_id == current_user.user_id
     ).all()
 
-    return { #농장 정보 반환
+    return {
         "success": True,
         "data": [
             {
                 "farm_id": farm.farm_id,
                 "farm_name": farm.farm_name,
                 "farm_location": farm.farm_location,
-                "farm_description": farm.farm_description
+                "farm_description": farm.farm_description,
+                "farm_image_path": farm.farm_image_path,
+                "latitude": farm.latitude,
+                "longitude": farm.longitude,
+                "public_region_label": farm.public_region_label,
             }
             for farm in farms
         ]
@@ -315,7 +459,10 @@ def get_farms( #농장 정보 불러옴
 @app.patch("/farms/{farm_id}", response_model=schemas.FarmSaveResponse)
 def update_farm(
     farm_id: int,
-    request: schemas.FarmUpdateRequest,
+    farm_name: str = Form(...),
+    farm_location: str = Form(...),
+    farm_description: str | None = Form(None),
+    farm_image: UploadFile | None = File(None),
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_farm_manager)
 ):
@@ -327,18 +474,37 @@ def update_farm(
     if farm is None:
         raise HTTPException(status_code=404, detail="농장을 찾을 수 없습니다.")
 
-    if not request.farm_name.strip():
+    if not farm_name.strip():
         raise HTTPException(status_code=400, detail="farm_name은 필수입니다.")
 
-    if not request.farm_location or not request.farm_location.strip():
+    if not farm_location or not farm_location.strip():
         raise HTTPException(status_code=400, detail="farm_location은 필수입니다.")
 
-    # 주소가 수정되었으면 다시 위도/경도 변환
-    geo = geocode_address(request.farm_location)
+    if farm_image is not None:
+        allowed_extensions = [".jpg", ".jpeg", ".png"]
+        ext = os.path.splitext(farm_image.filename)[1].lower()
 
-    farm.farm_name = request.farm_name
-    farm.farm_location = request.farm_location
-    farm.farm_description = request.farm_description
+        if ext not in allowed_extensions:
+            raise HTTPException(
+                status_code=400,
+                detail="지원하지 않는 이미지 형식입니다."
+            )
+
+        os.makedirs("uploads/farms", exist_ok=True)
+
+        unique_filename = f"{uuid4()}{ext}"
+        save_path = os.path.join("uploads/farms", unique_filename)
+
+        with open(save_path, "wb") as buffer:
+            shutil.copyfileobj(farm_image.file, buffer)
+
+        farm.farm_image_path = save_path.replace("\\", "/")
+
+    geo = geocode_address(farm_location)
+
+    farm.farm_name = farm_name
+    farm.farm_location = farm_location
+    farm.farm_description = farm_description
     farm.latitude = geo["latitude"]
     farm.longitude = geo["longitude"]
     farm.public_region_label = geo["public_region_label"]
@@ -354,13 +520,12 @@ def update_farm(
             "farm_name": farm.farm_name,
             "farm_location": farm.farm_location,
             "farm_description": farm.farm_description,
+            "farm_image_path": farm.farm_image_path,
             "latitude": farm.latitude,
             "longitude": farm.longitude,
             "public_region_label": farm.public_region_label,
-            "share_consent_level": farm.share_consent_level,
         }
     }
-
 @app.delete("/farms/{farm_id}")
 def delete_farm(
     farm_id: int,
@@ -389,7 +554,7 @@ def delete_farm(
         diagnosis.diagnosis_id
         for diagnosis in diagnoses
     ]
-
+    farm_image_path = farm.farm_image_path
     try:
         if diagnosis_ids:
             db.query(models.DetectionResult).filter(
@@ -420,6 +585,9 @@ def delete_farm(
         db.delete(farm)
         db.commit()
 
+        if farm_image_path and os.path.exists(farm_image_path):
+            os.remove(farm_image_path)
+    
     except Exception:
         db.rollback()
         raise HTTPException(
@@ -785,25 +953,34 @@ def get_diagnosis_history(
     query = db.query(models.Diagnosis)
 
     if current_user.user_role == "GENERAL_USER":
-        query = query.filter(models.Diagnosis.user_id == current_user.user_id)
+        query = query.filter(
+            models.Diagnosis.user_id == current_user.user_id,
+            models.Diagnosis.farm_id.is_(None),
+            models.Diagnosis.zone_id.is_(None)
+        )
+        if crop_name:
+            query = query.filter(models.Diagnosis.crop_name == crop_name)
+
+        if severity_level:
+            query = query.filter(models.Diagnosis.severity_level == severity_level)
+
     elif current_user.user_role == "FARM_MANAGER":
         manager_zone_ids = get_manager_zone_ids(db, current_user.user_id)
+
         if not manager_zone_ids:
             return {"success": True, "data": []}
+
         query = query.filter(models.Diagnosis.zone_id.in_(manager_zone_ids))
 
-    if crop_name:
-        query = query.filter(models.Diagnosis.crop_name == crop_name)
+        if severity_level:
+            query = query.filter(models.Diagnosis.severity_level == severity_level)
 
-    if severity_level:
-        query = query.filter(models.Diagnosis.severity_level == severity_level)
-
-#task---------------추후에 농장 관리자 역할로 진단이력을 조회할 경우 농장별, 구역별, 심각도별로 수정 예정----------
-    if current_user.user_role == "FARM_MANAGER":
         if disease_name:
             query = query.filter(models.Diagnosis.disease_name == disease_name)
+
         if farm_id is not None:
             query = query.filter(models.Diagnosis.farm_id == farm_id)
+
         if zone_id is not None:
             query = query.filter(models.Diagnosis.zone_id == zone_id)
         
@@ -841,13 +1018,31 @@ def get_diagnosis_detail(
         raise HTTPException(status_code=404, detail="진단 결과를 찾을 수 없습니다.")
 
     if current_user.user_role == "GENERAL_USER":
-        if diagnosis.user_id != current_user.user_id:
+        if (
+            diagnosis.user_id != current_user.user_id
+            or diagnosis.farm_id is not None
+            or diagnosis.zone_id is not None
+        ):
             raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+        
     elif current_user.user_role == "FARM_MANAGER":
         manager_zone_ids = get_manager_zone_ids(db, current_user.user_id)
         if diagnosis.zone_id not in manager_zone_ids:
             raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
 
+    farm = None
+    zone = None
+
+    if diagnosis.farm_id is not None:
+        farm = db.query(models.Farm).filter(
+            models.Farm.farm_id == diagnosis.farm_id
+        ).first()
+
+    if diagnosis.zone_id is not None:
+        zone = db.query(models.Zone).filter(
+            models.Zone.zone_id == diagnosis.zone_id
+        ).first()
+        
     detections = db.query(models.DetectionResult).filter(
         models.DetectionResult.diagnosis_id == diagnosis_id
     ).all()
@@ -858,6 +1053,8 @@ def get_diagnosis_detail(
             "diagnosis_id": diagnosis.diagnosis_id,
             "crop_name": diagnosis.crop_name,
             "part_name": diagnosis.part_name,
+            "farm_id": diagnosis.farm_id,
+            "zone_id": diagnosis.zone_id,
             "disease_name": diagnosis.disease_name,
             "class_name": diagnosis.class_name,
             "has_disease": diagnosis.has_disease,
@@ -880,8 +1077,8 @@ def get_diagnosis_detail(
             ]
         }
     }
-
-@app.get("/dashboard", response_model=schemas.DashboardResponse) #대시보드 조회: 상단 KPI용(평균 심각도, 조치 완료율, 최근 진단 병해 수), 최근 7일만 조회
+#task------------병해로 진단된 이력이 5건 미만일 경우 진단이력 조회하는 조건으로 수정해야함, has_enough_data_for_graph를 수정해야함
+@app.get("/dashboard", response_model=schemas.DashboardResponse) #대시보드 조회: 상단 KPI용(평균 심각도, 조치 완료율, 최근 진단 병해 수), 최근 30일만 조회, 일반사용자는 전체, 농장관리자는 농장별 kpi
 def get_dashboard(
     farm_id: int | None=None,
     db: Session = Depends(get_db),
@@ -894,7 +1091,11 @@ def get_dashboard(
     query = db.query(models.Diagnosis)
 
     if current_user.user_role == "GENERAL_USER":
-        query = query.filter(models.Diagnosis.user_id == current_user.user_id)
+        query = query.filter(
+            models.Diagnosis.user_id == current_user.user_id,
+            models.Diagnosis.farm_id.is_(None),
+            models.Diagnosis.zone_id.is_(None)
+        )
     elif current_user.user_role == "FARM_MANAGER":
         manager_zone_ids = get_manager_zone_ids(db, current_user.user_id)
         if not manager_zone_ids:
@@ -907,10 +1108,10 @@ def get_dashboard(
                         "disease_count": 0
                     },
                     "total_records": 0,
-                    "has_enough_data_for_graph": False
+                    "has_enough_data_for_graph": False 
                 }
             }
-        query = query.filter(models.Diagnosis.zone_id.in_(manager_zone_ids))
+        query = query.filter(models.Diagnosis.zone_id.in_(manager_zone_ids)) #농장 관리자는 농장별로 데이터 조회
 
         if farm_id is not None:
             query = query.filter(models.Diagnosis.farm_id == farm_id)
@@ -962,34 +1163,36 @@ def get_dashboard(
                 "disease_count": disease_count
             },
             "total_records": total_count,
-            "has_enough_data_for_graph": total_count >= 5
+            "has_enough_data_for_graph": total_count >= 5 #task 총 진단 수가 아닌 병해 발생 진단 수가 5개 이상이어야하는걸로 수정
         }
     }
 
-@app.get("/dashboard/group-kpi", response_model=schemas.GroupKPIResponse)
+@app.get("/dashboard/group-kpi", response_model=schemas.GroupKPIResponse) #일반사용자: 농작물별, 농장 관리자: 구역별 kpi 
 def get_dashboard_group_kpi(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    end_date = datetime.now()
+    end_date = datetime.now() #최근 30일 데이터만 조회
     start_date = end_date - timedelta(days=29)
 
-    query = db.query(models.Diagnosis).filter(
+    query = db.query(models.Diagnosis).filter( 
         models.Diagnosis.diagnosed_at >= start_date,
         models.Diagnosis.diagnosed_at <= end_date
     )
 
-    if current_user.user_role == "GENERAL_USER":
+    if current_user.user_role == "GENERAL_USER": #일반사용자일 경우
         query = query.filter(
-            models.Diagnosis.user_id == current_user.user_id
-        )
+            models.Diagnosis.user_id == current_user.user_id,
+            models.Diagnosis.farm_id.is_(None),
+            models.Diagnosis.zone_id.is_(None)
+        ) #사용자 아이디로 데이터 필터링
 
-        diagnoses = query.all()
+        diagnoses = query.all() #사용자 데이터 다 가져오기
 
-        group_map = {}
+        group_map = {} 
 
         for d in diagnoses:
-            key = d.crop_name
+            key = d.crop_name #농작물별로 진단 그룹핑
 
             if key not in group_map:
                 group_map[key] = {
@@ -1004,36 +1207,36 @@ def get_dashboard_group_kpi(
         for key, group in group_map.items():
             group_diagnoses = group["diagnoses"]
 
-            total_records = len(group_diagnoses)
+            total_records = len(group_diagnoses) #특정 농작물의 데이터 수
 
-            severity_scores = [
+            severity_scores = [ #task 심각도 점수는 4단계로 나눠서 계산하지 않고, 숫자로 받은 값으로 반영할 것 
                 severity_to_score(d.severity_level)
                 for d in group_diagnoses
             ]
 
-            average_severity = (
+            average_severity = ( #평균 심각도 계산
                 round(sum(severity_scores) / len(severity_scores), 2)
                 if severity_scores else 0
             )
 
-            disease_diagnoses = [
+            disease_diagnoses = [ #병으로 진단된 이력
                 d for d in group_diagnoses
                 if d.has_disease == True
             ]
 
-            disease_count = len(disease_diagnoses)
+            disease_count = len(disease_diagnoses) #병으로 진단된 이력 카운트
 
-            completed_count = len([
+            completed_count = len([ #조치완료한 진단이력 카운트
                 d for d in disease_diagnoses
                 if d.action_status == "COMPLETED"
             ])
 
-            completion_rate = (
+            completion_rate = ( #조치완료 비율
                 round(completed_count / disease_count, 4)
                 if disease_count > 0 else 0
             )
 
-            data.append({
+            data.append({ #데이터 반환
                 "crop_name": group["crop_name"],
                 "average_severity": average_severity,
                 "completion_rate": completion_rate,
@@ -1046,35 +1249,53 @@ def get_dashboard_group_kpi(
             "data": data
         }
 
-    elif current_user.user_role == "FARM_MANAGER":
-        manager_zone_ids = get_manager_zone_ids(db, current_user.user_id)
+    elif current_user.user_role == "FARM_MANAGER": #농장 관리자의 경우
+        manager_zone_ids = get_manager_zone_ids(db, current_user.user_id) #사용자의 구역 정보 가져오기
 
-        if not manager_zone_ids:
+        if not manager_zone_ids: #구역 정보가 없을 경우
             return {
                 "success": True,
                 "data": []
             }
 
-        query = query.filter(
+        query = query.filter( #구역 아이디로 진단 이력 가져오기
             models.Diagnosis.zone_id.in_(manager_zone_ids)
         )
 
-        diagnoses = query.all()
-        zone_rows = db.query(models.Zone).filter(
+        diagnoses = query.all() 
+        zone_rows = db.query(models.Zone).filter( #구역아이디를 통해 구역 정보를 가져옴
             models.Zone.zone_id.in_(manager_zone_ids)
         ).all()
 
-        zone_name_map = {
+        zone_name_map = { #구역 아이디: 구역 이름 매핑
             zone.zone_id: zone.zone_name_or_code
+            for zone in zone_rows
+        }
+        farm_ids = list(set([
+            zone.farm_id
+            for zone in zone_rows
+        ]))
+
+        farm_rows = db.query(models.Farm).filter(
+            models.Farm.farm_id.in_(farm_ids)
+        ).all()
+
+        farm_name_map = {
+            farm.farm_id: farm.farm_name
+            for farm in farm_rows
+        }
+
+        zone_crop_map = {
+            zone.zone_id: zone.crop_name
             for zone in zone_rows
         }
         group_map = {}
 
         for d in diagnoses:
-            if d.farm_id is None or d.zone_id is None:
+            if d.farm_id is None or d.zone_id is None: #진단에서 농장아이디와 구역아이디가 없을 경우
                 continue
 
-            key = (d.farm_id, d.zone_id)
+            key = (d.farm_id, d.zone_id) #농장 및 구역별로 데이터 나눔
 
             if key not in group_map:
                 group_map[key] = {
@@ -1087,43 +1308,56 @@ def get_dashboard_group_kpi(
             group_map[key]["diagnoses"].append(d)
 
         data = []
+#task--------------반복에 key 삭제함--------------------------
+        for key,group in group_map.items():
+            group_diagnoses = group["diagnoses"] #해당 구역의 데이터 가져옴
 
-        for key, group in group_map.items():
-            group_diagnoses = group["diagnoses"]
-
-            total_records = len(group_diagnoses)
-
-            severity_scores = [
+            total_records = len(group_diagnoses) #해당 구역의 총 진단 수
+#task-----------------일반사용자와 마찬가지로 수정----------------------
+            severity_scores = [ #심각도 조회
                 severity_to_score(d.severity_level)
                 for d in group_diagnoses
             ]
 
-            average_severity = (
+            average_severity = ( #평균 심각도 계산
                 round(sum(severity_scores) / len(severity_scores), 2)
                 if severity_scores else 0
             )
 
-            disease_diagnoses = [
+            disease_diagnoses = [ #병해로 진단된 진단이력 조회
                 d for d in group_diagnoses
                 if d.has_disease == True
             ]
 
-            disease_count = len(disease_diagnoses)
+            disease_count = len(disease_diagnoses) #병해로 진단된 총 이력 수
 
-            completed_count = len([
+            completed_count = len([ #조치완료된 진단 이력 수
                 d for d in disease_diagnoses
                 if d.action_status == "COMPLETED"
             ])
 
-            completion_rate = (
-                round(completed_count / disease_count, 4)
+            completion_rate = ( #조치완료 비율 계산
+                round(completed_count / disease_count, 4) #조치완료 총 데이터 수/병해 발생 총 데이터 수
                 if disease_count > 0 else 0
             )
 
             data.append({
                 "farm_id": group["farm_id"],
+                "farm_name": farm_name_map.get(
+                    group["farm_id"],
+                    f"농장 {group['farm_id']}"
+                ),
+
                 "zone_id": group["zone_id"],
-                "zone_name": zone_name_map.get(group["zone_id"], f"구역 {group['zone_id']}"),
+
+                "zone_name": zone_name_map.get(
+                    group["zone_id"],
+                    f"구역 {group['zone_id']}"
+                ),
+
+                "zone_crop_name": zone_crop_map.get(
+                    group["zone_id"]
+                ),
                 "crop_name": group["crop_name"],
                 "average_severity": average_severity,
                 "completion_rate": completion_rate,
@@ -1141,7 +1375,7 @@ def get_dashboard_group_kpi(
         "message": "허용되지 않은 사용자 역할입니다."
     }
 
-@app.get("/dashboard/group-charts",response_model=schemas.GroupChartsResponse)
+@app.get("/dashboard/group-charts",response_model=schemas.GroupChartsResponse) #대시보드 그래프용 api
 def get_dashboard_group_charts(
     crop_name: str | None = None,
     farm_id: int | None = None,
@@ -1155,7 +1389,11 @@ def get_dashboard_group_charts(
     query = db.query(models.Diagnosis)
 
     if current_user.user_role == "GENERAL_USER":
-        query = query.filter(models.Diagnosis.user_id == current_user.user_id)
+        query = query.filter(
+            models.Diagnosis.user_id == current_user.user_id,
+            models.Diagnosis.farm_id.is_(None),
+            models.Diagnosis.zone_id.is_(None)
+        )
 
         if crop_name:
             query = query.filter(models.Diagnosis.crop_name == crop_name)
@@ -1183,18 +1421,18 @@ def get_dashboard_group_charts(
         if zone_id is not None:
             query = query.filter(models.Diagnosis.zone_id == zone_id)
 
-    query = query.filter(
+    query = query.filter( #최근 30일 데이터로 필터링
         models.Diagnosis.diagnosed_at >= start_date,
         models.Diagnosis.diagnosed_at <= end_date
     )
 
     diagnoses = query.all()
 
-    daily_severity_by_disease_map = {}
-    disease_frequency_map = {}
+    daily_severity_by_disease_map = {} #심각도 추세
+    disease_frequency_map = {} #병해별 발생 빈도 
 
     for d in diagnoses:
-        if not d.has_disease:
+        if not d.has_disease: #병해 발생 정보가 없을 경우
             continue
 
         date_key = d.diagnosed_at.strftime("%Y-%m-%d")
@@ -1207,7 +1445,7 @@ def get_dashboard_group_charts(
             daily_severity_by_disease_map[disease_name][date_key] = []
 
         daily_severity_by_disease_map[disease_name][date_key].append(
-            severity_to_score(d.severity_level)
+            severity_to_score(d.severity_level) #task---------등급이 아니라 점수로 할거임
         )
 
         if disease_name not in disease_frequency_map:
@@ -1215,25 +1453,25 @@ def get_dashboard_group_charts(
 
         disease_frequency_map[disease_name] += 1
 
-    daily_severity_by_disease = []
+    daily_severity_by_disease = [] #일별 심각도 추세
 
     for disease_name, date_map in daily_severity_by_disease_map.items():
-        date_data = []
+        date_data = [] #날짜별로 데이터를 담을 리스트
 
-        for date_key, scores in date_map.items():
+        for date_key, scores in date_map.items(): #해당 날의 평균 심각도 계산
             date_data.append({
                 "date": date_key,
                 "average_severity": round(sum(scores) / len(scores), 2)
             })
 
-        date_data.sort(key=lambda x: x["date"])
+        date_data.sort(key=lambda x: x["date"]) #날짜별로 정렬
 
-        daily_severity_by_disease.append({
+        daily_severity_by_disease.append({  #해당 농작물의 해당날의 평균 심각도
             "disease_name": disease_name,
             "data": date_data
         })
 
-    disease_frequency = [
+    disease_frequency = [ #병해별 발생 빈도 데이터 json 형태로 변환
         {
             "disease_name": disease_name,
             "count": count
@@ -1241,11 +1479,11 @@ def get_dashboard_group_charts(
         for disease_name, count in disease_frequency_map.items()
     ]
 
-    disease_frequency.sort(key=lambda x: x["count"], reverse=True)
+    disease_frequency.sort(key=lambda x: x["count"], reverse=True) #빈도가 높은 병해순으로 정렬
 
     total_disease_count = sum(disease_frequency_map.values())
 
-    disease_distribution = []
+    disease_distribution = [] #병해별 파이차트
 
     for disease_name, count in disease_frequency_map.items():
         disease_distribution.append({
@@ -1283,6 +1521,12 @@ def get_calendar_events(
         models.CalendarEvent.event_date >= start_date,
         models.CalendarEvent.event_date <= end_date
     )
+
+    if current_user.user_role == "GENERAL_USER":
+        query = query.filter(
+            models.CalendarEvent.farm_id.is_(None),
+            models.CalendarEvent.zone_id.is_(None)
+        )
 
     if farm_id is not None:
         query = query.filter(models.CalendarEvent.farm_id == farm_id)
@@ -1330,11 +1574,19 @@ def get_events_by_date(
     start = date.replace(hour=0, minute=0, second=0) #범위 하루 전체
     end = date.replace(hour=23, minute=59, second=59)
 
-    events = db.query(models.CalendarEvent).filter( #해당 날짜만
+    query = db.query(models.CalendarEvent).filter( #해당 날짜만
         models.CalendarEvent.user_id == current_user.user_id,
         models.CalendarEvent.event_date >= start,
         models.CalendarEvent.event_date <= end
-    ).all()
+    )
+
+    if current_user.user_role == "GENERAL_USER":
+        query = query.filter(
+            models.CalendarEvent.farm_id.is_(None),
+            models.CalendarEvent.zone_id.is_(None)
+        )
+
+    events=query.all()
 
     return {
         "success": True,
@@ -1354,33 +1606,101 @@ def get_events_by_date(
         ]
     }
 
-@app.get("/alerts/treatment")
-def get_treatment_alerts(
-    crop_name: str | None = None,
-    severity_level: str | None = None,
-    farm_id: int | None = None,
-    zone_id: int | None = None,
+@app.post("/alerts/treatment") #조치알림 생성 api
+def create_treatment_alert(
+    request: schemas.CreateTreatmentAlertRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    query = db.query(models.TreatmentAlert, models.Diagnosis).join(
-        models.Diagnosis,
-        models.TreatmentAlert.diagnosis_id == models.Diagnosis.diagnosis_id
-    )
+    diagnosis = db.query(models.Diagnosis).filter(
+        models.Diagnosis.diagnosis_id == request.diagnosis_id
+    ).first()
+
+    if diagnosis is None:
+        raise HTTPException(status_code=404, detail="진단 결과를 찾을 수 없습니다.")
 
     if current_user.user_role == "GENERAL_USER":
-        query = query.filter(
-            models.TreatmentAlert.user_id == current_user.user_id,
-            models.Diagnosis.user_id == current_user.user_id
-        )
-
-        if crop_name:
-            query = query.filter(models.Diagnosis.crop_name == crop_name)
+        if (
+            diagnosis.user_id != current_user.user_id
+            or diagnosis.farm_id is not None
+            or diagnosis.zone_id is not None
+        ):
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
 
     elif current_user.user_role == "FARM_MANAGER":
         manager_zone_ids = get_manager_zone_ids(db, current_user.user_id)
 
-        if not manager_zone_ids:
+        if diagnosis.zone_id not in manager_zone_ids:
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
+
+    if diagnosis.has_disease != True: #진단 결과가 정상일 경우
+        raise HTTPException(
+            status_code=400,
+            detail="병해로 진단된 결과에만 조치 알림을 설정할 수 있습니다."
+        )
+
+    if request.scheduled_at is None: #시간 설정을 하지 않았을 경우
+        raise HTTPException(
+            status_code=400,
+            detail="알림 시간은 필수입니다."
+        )
+
+    new_alert = models.TreatmentAlert( 
+        diagnosis_id=diagnosis.diagnosis_id,
+        user_id=current_user.user_id,
+        alert_status="SCHEDULED",
+        alert_response="REMIND_LATER",  # 생성과 동시에 나중에 알림 처리
+        scheduled_at=request.scheduled_at
+    )
+
+    diagnosis.action_status = "PENDING"
+
+    db.add(new_alert)
+    db.commit()
+    db.refresh(new_alert)
+
+    return {
+        "success": True,
+        "message": "나중에 알림이 설정되었습니다.",
+        "data": {
+            "alert_id": new_alert.alert_id,
+            "diagnosis_id": new_alert.diagnosis_id,
+            "alert_status": new_alert.alert_status,
+            "alert_response": new_alert.alert_response,
+            "scheduled_at": new_alert.scheduled_at
+        }
+    }
+
+@app.get("/alerts/treatment") #조치알림 조회
+def get_treatment_alerts( 
+    crop_name: str | None = None,
+    severity_level: str | None = None,
+    farm_id: int | None = None,
+    zone_id: int | None = None,
+    alert_status: str | None = None,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    query = db.query(models.TreatmentAlert, models.Diagnosis).join( #TreatmentAlert와 Diagnosis를 diagnosis_id 기준으로 연결해서 알림+진단 정보를 함께 조회
+        models.Diagnosis,
+        models.TreatmentAlert.diagnosis_id == models.Diagnosis.diagnosis_id
+    )
+
+    if current_user.user_role == "GENERAL_USER": #일반 사용자일 경우
+        query = query.filter( #사용자 아이디로 데이터 조회
+            models.TreatmentAlert.user_id == current_user.user_id,
+            models.Diagnosis.user_id == current_user.user_id,
+            models.Diagnosis.farm_id.is_(None),
+            models.Diagnosis.zone_id.is_(None)
+        )
+
+        if crop_name: #농작물로 필터링 할 경우 해당 농작물 데이터만 조회
+            query = query.filter(models.Diagnosis.crop_name == crop_name)
+
+    elif current_user.user_role == "FARM_MANAGER": #농장 관리자일 경우
+        manager_zone_ids = get_manager_zone_ids(db, current_user.user_id) #구역 정보 조회
+
+        if not manager_zone_ids: #구역 정보가 존재하지 않을 경우
             return {
                 "success": True,
                 "data": {
@@ -1393,20 +1713,33 @@ def get_treatment_alerts(
                 }
             }
 
-        query = query.filter(
+        query = query.filter( #구역 정보로 사용자의 진단 정보 조회
             models.Diagnosis.zone_id.in_(manager_zone_ids)
         )
 
-        if farm_id is not None:
-            query = query.filter(models.Diagnosis.farm_id == farm_id)
+        if farm_id is not None: #농장으로 필터링 할 경우
+            query = query.filter(models.Diagnosis.farm_id == farm_id) #해당 농장의 데이터만 조회
 
-        if zone_id is not None:
-            query = query.filter(models.Diagnosis.zone_id == zone_id)
+        if zone_id is not None: #구역으로 필터링 할 경우
+            query = query.filter(models.Diagnosis.zone_id == zone_id) #해당구역 구역 데이터만 조회
 
-    if severity_level:
-        query = query.filter(models.Diagnosis.severity_level == severity_level)
+    if severity_level: #심각도별로 필터링할 경우
+        query = query.filter(models.Diagnosis.severity_level == severity_level) #해당 심각도레벨의 데이터만 조회
 
-    rows = query.order_by(models.TreatmentAlert.created_at.desc()).all()
+    if alert_status:
+        allowed_status = ["SCHEDULED", "SENT", "RESPONDED", "CLOSED"]
+
+        if alert_status not in allowed_status:
+            raise HTTPException(
+                status_code=400,
+                detail="alert_status는 SCHEDULED, SENT, RESPONDED, CLOSED만 가능합니다."
+            )
+
+        query = query.filter(
+            models.TreatmentAlert.alert_status == alert_status
+        )
+
+    rows = query.order_by(models.TreatmentAlert.created_at.desc()).all() #생성된 순서로 정렬
 
     data = []
     for alert, diagnosis in rows:
@@ -1426,9 +1759,9 @@ def get_treatment_alerts(
             "diagnosed_at": diagnosis.diagnosed_at,
         })
 
-    completed_count = sum(1 for item in data if item["alert_response"] == "COMPLETED")
-    hold_count = sum(1 for item in data if item["alert_response"] == "HOLD")
-    remind_later_count = sum(1 for item in data if item["alert_response"] == "REMIND_LATER")
+    completed_count = sum(1 for item in data if item["alert_response"] == "COMPLETED") #조치 완료된 진단 이력 카운트 
+    hold_count = sum(1 for item in data if item["alert_response"] == "HOLD") #보류 중 진단 이력 카운트
+    remind_later_count = sum(1 for item in data if item["alert_response"] == "REMIND_LATER") #나중에 알림 진단 이력 카운트
 
     return {
         "success": True,
@@ -1442,21 +1775,86 @@ def get_treatment_alerts(
         }
     }
 
-
-@app.post("/alerts/{alert_id}/respond")
-def respond_treatment_alert(
+@app.post("/alerts/{alert_id}/respond") #조치알림 응답 생성 api
+def respond_treatment_alert( 
     alert_id: int,
     request: schemas.RespondTreatmentAlertRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user)
 ):
-    allowed = ["COMPLETED", "HOLD", "REMIND_LATER"]
+    allowed = ["COMPLETED", "HOLD", "REMIND_LATER"] # 조치 완료, 보류, 나중에 알림만 허용
     if request.alert_response not in allowed:
         raise HTTPException(status_code=400, detail="허용되지 않은 응답입니다.")
 
-    alert = db.query(models.TreatmentAlert).filter(
+    alert = db.query(models.TreatmentAlert).filter( #테이블에서 사용자의 특정 알림을 조회
         models.TreatmentAlert.alert_id == alert_id,
         models.TreatmentAlert.user_id == current_user.user_id
+    ).first()
+
+    if alert is None: #알림이 없을 경우
+        raise HTTPException(status_code=404, detail="알림을 찾을 수 없습니다.")
+
+    diagnosis = db.query(models.Diagnosis).filter( #알림과 연결된 진단이력 조회
+        models.Diagnosis.diagnosis_id == alert.diagnosis_id
+    ).first()
+
+    if diagnosis is None: #연결된 진단이 없을 경우
+        raise HTTPException(status_code=404, detail="연결된 진단 결과를 찾을 수 없습니다.")
+
+    alert.alert_status = "RESPONDED"
+    alert.alert_response = request.alert_response
+    alert.responded_at = datetime.now()
+
+    if request.alert_response == "COMPLETED": #조치 완료로 설정했을 경우
+        diagnosis.action_status = "COMPLETED" #조치 상태 '조치 완료'로 바꿈
+
+        treatment_event = models.CalendarEvent( 
+            user_id=current_user.user_id,
+            zone_id=diagnosis.zone_id,
+            diagnosis_id=diagnosis.diagnosis_id,
+            event_type="TREATMENT",
+            title=f"{diagnosis.crop_name} - 방제 완료",
+            crop_name=diagnosis.crop_name,
+            disease_name=diagnosis.disease_name,
+            severity_level=diagnosis.severity_level,
+            event_date=datetime.now()
+        )
+        db.add(treatment_event) 
+        alert.alert_status = "CLOSED" #알림 비활성화
+
+    elif request.alert_response == "HOLD": #보류로 설정했을 경우
+        diagnosis.action_status = "PENDING" #미조치로 설정
+        alert.alert_status = "CLOSED" #알림 비활성화
+
+    elif request.alert_response == "REMIND_LATER":
+        diagnosis.action_status = "PENDING"
+
+        if request.next_scheduled_at is None:
+            raise HTTPException(
+                status_code=400,
+                detail="나중에 알림 시간은 필수입니다."
+            )
+
+        alert.alert_status = "SCHEDULED"
+        alert.alert_response = "REMIND_LATER"
+        alert.scheduled_at = request.next_scheduled_at
+        alert.responded_at = datetime.now()
+
+    db.commit()
+
+    return {
+        "success": True,
+        "message": "알림 응답이 처리되었습니다."
+    }
+
+@app.get("/alerts/{alert_id}")
+def get_treatment_alert_detail(
+    alert_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    alert = db.query(models.TreatmentAlert).filter(
+        models.TreatmentAlert.alert_id == alert_id
     ).first()
 
     if alert is None:
@@ -1469,65 +1867,44 @@ def respond_treatment_alert(
     if diagnosis is None:
         raise HTTPException(status_code=404, detail="연결된 진단 결과를 찾을 수 없습니다.")
 
-    alert.alert_status = "RESPONDED"
-    alert.alert_response = request.alert_response
-    alert.responded_at = datetime.now()
+    if current_user.user_role == "GENERAL_USER":
+        if (
+            alert.user_id != current_user.user_id
+            or diagnosis.user_id != current_user.user_id
+            or diagnosis.farm_id is not None
+            or diagnosis.zone_id is not None
+        ):
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
 
-    if request.alert_response == "COMPLETED":
-        diagnosis.action_status = "COMPLETED"
+    elif current_user.user_role == "FARM_MANAGER":
+        manager_zone_ids = get_manager_zone_ids(db, current_user.user_id)
 
-        treatment_event = models.CalendarEvent(
-            user_id=current_user.user_id,
-            zone_id=diagnosis.zone_id,
-            diagnosis_id=diagnosis.diagnosis_id,
-            event_type="TREATMENT",
-            title=f"{diagnosis.crop_name} - 방제 완료",
-            crop_name=diagnosis.crop_name,
-            disease_name=diagnosis.disease_name,
-            severity_level=diagnosis.severity_level,
-            event_date=datetime.now()
-        )
-        db.add(treatment_event)
-        alert.alert_status = "CLOSED"
-
-    elif request.alert_response == "HOLD":
-        diagnosis.action_status = "PENDING"
-        alert.alert_status = "CLOSED"
-
-    elif request.alert_response == "REMIND_LATER":
-        diagnosis.action_status = "PENDING"
-
-        new_alert = models.TreatmentAlert(
-            diagnosis_id=diagnosis.diagnosis_id,
-            user_id=current_user.user_id,
-            alert_status="SCHEDULED",
-            scheduled_at=datetime.now() + timedelta(days=1)
-        )
-        db.add(new_alert)
-        alert.alert_status = "CLOSED"
-
-    db.commit()
+        if diagnosis.zone_id not in manager_zone_ids:
+            raise HTTPException(status_code=403, detail="접근 권한이 없습니다.")
 
     return {
         "success": True,
-        "message": "알림 응답이 처리되었습니다."
+        "data": {
+            "alert_id": alert.alert_id,
+            "alert_status": alert.alert_status,
+            "alert_response": alert.alert_response,
+            "scheduled_at": alert.scheduled_at,
+            "diagnosis_id": diagnosis.diagnosis_id,
+            "crop_name": diagnosis.crop_name,
+            "disease_name": diagnosis.disease_name,
+            "severity_level": diagnosis.severity_level,
+            "action_status": diagnosis.action_status,
+            "diagnosed_at": diagnosis.diagnosed_at,
+        }
     }
 
-@app.patch("/farms/{farm_id}/share-consent", response_model=schemas.FarmShareConsentResponse)
-def update_farm_share_consent(
+
+@app.get("/farms/{farm_id}/share-consent")
+def get_farm_share_consent(
     farm_id: int,
-    request: schemas.FarmShareConsentRequest,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_farm_manager)
 ):
-    allowed_levels = ["FULL_PUBLIC", "PARTIAL_PUBLIC", "PRIVATE"]
-
-    if request.share_consent_level not in allowed_levels:
-        raise HTTPException(
-            status_code=400,
-            detail="share_consent_level은 FULL_PUBLIC, PARTIAL_PUBLIC, PRIVATE만 가능합니다."
-        )
-
     farm = db.query(models.Farm).filter(
         models.Farm.farm_id == farm_id,
         models.Farm.manager_user_id == current_user.user_id
@@ -1541,36 +1918,81 @@ def update_farm_share_consent(
         models.Zone.is_deleted == False
     ).all()
 
-    farm.share_consent_level = request.share_consent_level
+    return {
+        "success": True,
+        "data": {
+            "farm_id": farm.farm_id,
+            "farm_name": farm.farm_name,
+            "share_consent_level": farm.share_consent_level,
+            "zones": [
+                {
+                    "zone_id": zone.zone_id,
+                    "zone_name_or_code": zone.zone_name_or_code,
+                    "crop_name": zone.crop_name,
+                    "share_enabled_flag": zone.share_enabled_flag
+                }
+                for zone in zones
+            ]
+        }
+    }
+@app.patch("/farms/{farm_id}/share-consent", response_model=schemas.FarmShareConsentResponse) #공유 설정
+def update_farm_share_consent(
+    farm_id: int,
+    request: schemas.FarmShareConsentRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(require_farm_manager)
+):
+    allowed_levels = ["FULL_PUBLIC", "PARTIAL_PUBLIC", "PRIVATE"] #공개 설정 범위
+
+    if request.share_consent_level not in allowed_levels: #공개 설정 입력을 잘못했을 경우
+        raise HTTPException(
+            status_code=400,
+            detail="share_consent_level은 FULL_PUBLIC, PARTIAL_PUBLIC, PRIVATE만 가능합니다."
+        )
+
+    farm = db.query(models.Farm).filter( #농장 정보 조회
+        models.Farm.farm_id == farm_id,
+        models.Farm.manager_user_id == current_user.user_id
+    ).first()
+
+    if farm is None:
+        raise HTTPException(status_code=404, detail="농장을 찾을 수 없습니다.")
+
+    zones = db.query(models.Zone).filter( #농장별 구역 정보 조회
+        models.Zone.farm_id == farm_id,
+        models.Zone.is_deleted == False
+    ).all()
+
+    farm.share_consent_level = request.share_consent_level #농장 공유 범위 설정
 
     # 1. 전체 공개: 해당 농장의 모든 구역 공개
-    if request.share_consent_level == "FULL_PUBLIC":
-        for zone in zones:
+    if request.share_consent_level == "FULL_PUBLIC": #전체공개일 경우
+        for zone in zones: #모든 구역 전체공개 설정
             zone.share_enabled_flag = True
 
     # 2. 비공개: 모든 구역 비공개
-    elif request.share_consent_level == "PRIVATE":
-        for zone in zones:
+    elif request.share_consent_level == "PRIVATE": #비공개일 경우
+        for zone in zones: #모든 구역 비공개 설정
             zone.share_enabled_flag = False
 
     # 3. 일부 공개: 선택한 구역만 공개
-    elif request.share_consent_level == "PARTIAL_PUBLIC":
-        if not request.shared_zone_ids:
+    elif request.share_consent_level == "PARTIAL_PUBLIC": #일부 공개일 경우
+        if not request.shared_zone_ids: #구역을 선택하지 않았을 경우
             raise HTTPException(
                 status_code=400,
                 detail="PARTIAL_PUBLIC 선택 시 공개할 구역을 1개 이상 선택해야 합니다."
             )
 
-        valid_zone_ids = [zone.zone_id for zone in zones]
+        valid_zone_ids = [zone.zone_id for zone in zones] #구역정보에서 zone_id만 추출
 
-        for zone_id in request.shared_zone_ids:
-            if zone_id not in valid_zone_ids:
+        for zone_id in request.shared_zone_ids: #공유 설정한 구역들
+            if zone_id not in valid_zone_ids: #공유 설정한 구역들이 내 구역들인지 확인
                 raise HTTPException(
                     status_code=400,
                     detail="본인 농장에 속하지 않거나 삭제된 구역은 공개할 수 없습니다."
                 )
 
-        for zone in zones:
+        for zone in zones: #동의로 설정된 구역을 공유 동의로 설정
             zone.share_enabled_flag = zone.zone_id in request.shared_zone_ids
 
     db.commit()
@@ -1593,7 +2015,7 @@ def update_farm_share_consent(
         }
     }
 
-@app.get("/farms/nearby", response_model=schemas.NearbyFarmsResponse)
+@app.get("/farms/nearby", response_model=schemas.NearbyFarmsResponse) #인근 농장 조회 api
 def get_nearby_farms(
     base_farm_id: int,
     radius_km: float = 30,
@@ -1601,155 +2023,74 @@ def get_nearby_farms(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_farm_manager)
 ):
-    base_farm = db.query(models.Farm).filter(
+    base_farm = db.query(models.Farm).filter( #기준 농장 조회
         models.Farm.farm_id == base_farm_id,
         models.Farm.manager_user_id == current_user.user_id
     ).first()
 
-    if base_farm is None:
+    if base_farm is None: #기준으로 선택한 농장이 존재하지 않을때
         raise HTTPException(status_code=404, detail="기준 농장을 찾을 수 없습니다.")
 
-    if base_farm.latitude is None or base_farm.longitude is None:
+    if base_farm.latitude is None or base_farm.longitude is None: #위도, 경도 정보가 없을때
         raise HTTPException(
             status_code=400,
             detail="기준 농장의 위도/경도 정보가 없습니다. 농장 주소를 먼저 등록하거나 수정해주세요."
         )
 
-
-    candidate_farms = db.query(models.Farm).filter(
-        models.Farm.farm_id != base_farm.farm_id,
-        models.Farm.share_consent_level != "PRIVATE",
-        models.Farm.latitude.isnot(None),
+    candidate_farms = db.query(models.Farm).filter( #후보 농장
+        models.Farm.farm_id != base_farm.farm_id, #기준으로 잡은 농장 제외
+        models.Farm.share_consent_level != "PRIVATE", #공유 동의 하지 않은 농장 제외
+        models.Farm.latitude.isnot(None), #위도,경도 없을 경우 제외
         models.Farm.longitude.isnot(None)
     ).all()
 
     result = []
 
-    end_date = datetime.now()
+    end_date = datetime.now() #최근 7일 데이터
     start_date = end_date - timedelta(days=7)
 
-    for farm in candidate_farms:
-        distance = calculate_distance_km(
+    for farm in candidate_farms: #후보 농장들 중
+        distance = calculate_distance_km( #기준 농장과 후보 농장 거리 계산
             base_farm.latitude,
             base_farm.longitude,
             farm.latitude,
             farm.longitude
         )
 
-        if distance > radius_km:
+        if distance > radius_km: #반경 30km에 있는 농장이 아닐 경우
             continue
 
-        zone_query = db.query(models.Zone).filter(
+        zone_query = db.query(models.Zone).filter( #농장과 연결되어있고, 삭제되지 않은 구역
             models.Zone.farm_id == farm.farm_id,
             models.Zone.is_deleted == False
         )
 
-        if farm.share_consent_level == "PARTIAL_PUBLIC":
-            zone_query = zone_query.filter(
+        if farm.share_consent_level == "PARTIAL_PUBLIC": #부분 공개일 경우
+            zone_query = zone_query.filter( #공개된 구역만 조회
                 models.Zone.share_enabled_flag == True
             )
 
         shared_zones = zone_query.all()
         shared_zone_ids = [zone.zone_id for zone in shared_zones]
 
-        if farm.share_consent_level == "PARTIAL_PUBLIC" and not shared_zone_ids:
+        if farm.share_consent_level == "PARTIAL_PUBLIC" and not shared_zone_ids: #부분공개인데, 공개된 구역이 없을 경우
             continue
 
-        diagnosis_query = db.query(models.Diagnosis).filter(
-            models.Diagnosis.farm_id == farm.farm_id,
-            models.Diagnosis.diagnosed_at >= start_date,
-            models.Diagnosis.diagnosed_at <= end_date
-        )
-
-        if farm.share_consent_level == "PARTIAL_PUBLIC":
-            diagnosis_query = diagnosis_query.filter(
-                models.Diagnosis.zone_id.in_(shared_zone_ids)
-            )
-
-        diagnoses = diagnosis_query.all()
-
-        crop_names = sorted(list(set([
-            d.crop_name for d in diagnoses
-            if d.crop_name
+        crop_names = sorted(list(set([ #농작물 종류 조회
+            zone.crop_name for zone in shared_zones
+            if zone.crop_name
         ])))
 
-        disease_names = sorted(list(set([
-            d.disease_name for d in diagnoses
-            if d.has_disease and d.disease_name
-        ])))
-
-        total_count = len(diagnoses)
-        disease_count = len([d for d in diagnoses if d.has_disease])
-
-        if total_count == 0:
-            recent_status_summary = "최근 7일 진단 데이터 없음"
-        else:
-            recent_status_summary = f"최근 7일 진단 {total_count}건, 병해 {disease_count}건"
-
-        zone_risks = []
-
-        for zone in shared_zones:
-            zone_diagnoses = [
-                d for d in diagnoses
-                if d.zone_id == zone.zone_id
-            ]
-
-            zone_total = len(zone_diagnoses)
-            zone_disease_count = len([
-                d for d in zone_diagnoses
-                if d.has_disease
-            ])
-
-            if zone_total == 0:
-                disease_ratio = 0
-                risk_level = "DATA_INSUFFICIENT"
-                risk_label = "데이터 부족"
-                data_status = "NO_DATA"
-            else:
-                disease_ratio = zone_disease_count / zone_total
-
-                if zone_total <= 2:
-                    data_status = "REFERENCE_ONLY"
-                else:
-                    data_status = "ENOUGH_DATA"
-
-                if disease_ratio == 0:
-                    risk_level = "SAFE"
-                    risk_label = "안전"
-                elif disease_ratio < 0.3:
-                    risk_level = "NORMAL"
-                    risk_label = "보통"
-                else:
-                    risk_level = "DANGER"
-                    risk_label = "위험"
-
-            zone_risks.append({
-                "zone_id": zone.zone_id,
-                "zone_name_or_code": zone.zone_name_or_code,
-                "crop_name": zone.crop_name,
-                "total_diagnosis_count": zone_total,
-                "disease_count": zone_disease_count,
-                "disease_ratio": round(disease_ratio, 4),
-                "risk_level": risk_level,
-                "risk_label": risk_label,
-                "data_status": data_status
-            })
 
         result.append({
             "farm_id": farm.farm_id,
             "farm_name": farm.farm_name,
-
-            # 지도 마커 표시용
             "latitude": farm.latitude,
             "longitude": farm.longitude,
-
             "distance_km": round(distance, 2),
             "public_region_label": farm.public_region_label,
             "share_consent_level": farm.share_consent_level,
             "crop_names": crop_names,
-            "disease_names": disease_names,
-            "recent_status_summary": recent_status_summary,
-            "zone_risks": zone_risks
         })
 
     if sort_by == "name":
@@ -1763,11 +2104,8 @@ def get_nearby_farms(
             "base_farm": {
                 "farm_id": base_farm.farm_id,
                 "farm_name": base_farm.farm_name,
-
-                # 내 농장 지도 중심 표시용
                 "latitude": base_farm.latitude,
                 "longitude": base_farm.longitude,
-
                 "public_region_label": base_farm.public_region_label,
                 "share_consent_level": base_farm.share_consent_level
             },
@@ -1784,23 +2122,22 @@ def get_nearby_farm_risk_detail(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(require_farm_manager)
 ):
-    # 1. 기준 농장 확인: 내 농장이어야 함
-    base_farm = db.query(models.Farm).filter(
+   
+    base_farm = db.query(models.Farm).filter( #기준농장 정보
         models.Farm.farm_id == base_farm_id,
         models.Farm.manager_user_id == current_user.user_id
     ).first()
 
-    if base_farm is None:
+    if base_farm is None: #기준농장이 없을 경우
         raise HTTPException(status_code=404, detail="기준 농장을 찾을 수 없습니다.")
 
-    if base_farm.latitude is None or base_farm.longitude is None:
+    if base_farm.latitude is None or base_farm.longitude is None: #위도, 경도 정보가 없을 경우 
         raise HTTPException(
             status_code=400,
             detail="기준 농장의 위치 정보가 없습니다."
         )
 
-    # 2. 조회 대상 인근 농장 확인
-    target_farm = db.query(models.Farm).filter(
+    target_farm = db.query(models.Farm).filter(  #조회 대상 인근 농장 확인
         models.Farm.farm_id == farm_id,
         models.Farm.share_consent_level != "PRIVATE",
         models.Farm.latitude.isnot(None),
@@ -1813,34 +2150,32 @@ def get_nearby_farm_risk_detail(
             detail="조회 가능한 공개 농장을 찾을 수 없습니다."
         )
 
-    # 3. 반경 30km 안인지 확인
-    distance_km = calculate_distance_km(
+    distance_km = calculate_distance_km( #기준 농장과 조회 대상 간 농장 거리 계산
         base_farm.latitude,
         base_farm.longitude,
         target_farm.latitude,
         target_farm.longitude
     )
 
-    if distance_km > 30:
+    if distance_km > 30: #30km 밖의 농장일 경우
         raise HTTPException(
             status_code=403,
             detail="반경 30km 밖의 농장은 조회할 수 없습니다."
         )
 
-    # 4. 공개 구역 조회
-    zone_query = db.query(models.Zone).filter(
+    zone_query = db.query(models.Zone).filter( #조회 대상 농장의 구역 조회
         models.Zone.farm_id == target_farm.farm_id,
         models.Zone.is_deleted == False
     )
 
-    if target_farm.share_consent_level == "PARTIAL_PUBLIC":
-        zone_query = zone_query.filter(
+    if target_farm.share_consent_level == "PARTIAL_PUBLIC": #부분 공개일 경우
+        zone_query = zone_query.filter( #공개로 설정한 구역 조회
             models.Zone.share_enabled_flag == True
         )
 
     zones = zone_query.all()
 
-    if target_farm.share_consent_level == "PARTIAL_PUBLIC" and not zones:
+    if target_farm.share_consent_level == "PARTIAL_PUBLIC" and not zones: #부분 공개인데, 구역이 없을 경우
         return {
             "success": True,
             "data": {
@@ -1855,31 +2190,31 @@ def get_nearby_farm_risk_detail(
             }
         }
 
-    end_date = datetime.now()
+    end_date = datetime.now() #최근 7일 조회
     start_date = end_date - timedelta(days=7)
 
     zone_details = []
 
-    for zone in zones:
-        diagnoses = db.query(models.Diagnosis).filter(
+    for zone in zones: #구역별로 조회
+        diagnoses = db.query(models.Diagnosis).filter( #해당 구역의 최근 7일 진단 데이터 조회
             models.Diagnosis.zone_id == zone.zone_id,
             models.Diagnosis.diagnosed_at >= start_date,
             models.Diagnosis.diagnosed_at <= end_date
         ).all()
 
-        total_count = len(diagnoses)
+        total_count = len(diagnoses) #총 진단 수
 
-        moderate_count = len([
+        moderate_count = len([ #moderate 진단 수
             d for d in diagnoses
             if d.severity_level == "MODERATE"
         ])
 
-        severe_count = len([
+        severe_count = len([ #severe 진단 수
             d for d in diagnoses
             if d.severity_level == "SEVERE"
         ])
 
-        moderate_or_severe = [
+        moderate_or_severe = [ #moderate, severe 진단 조회
             d for d in diagnoses
             if d.severity_level in ["MODERATE", "SEVERE"]
         ]
@@ -1890,7 +2225,7 @@ def get_nearby_farm_risk_detail(
             alert_label = "데이터 부족"
             data_status = "NO_DATA"
         else:
-            prevention_score = (
+            prevention_score = ( #예방경보점수 지표
                 (0.6 * moderate_count + 1.0 * severe_count) / total_count
             )
 
@@ -1912,42 +2247,42 @@ def get_nearby_farm_risk_detail(
                 alert_level = "WARNING"
                 alert_label = "경고"
 
-        disease_counter = Counter([
+        disease_counter = Counter([ #병해별 발생 횟수
             d.disease_name for d in moderate_or_severe
             if d.disease_name
         ])
 
         top_disease = None
         if disease_counter:
-            disease_name, count = disease_counter.most_common(1)[0]
+            disease_name, count = disease_counter.most_common(1)[0] #가장 많이 발생한 병해 종류
             top_disease = {
                 "disease_name": disease_name,
                 "count": count
             }
 
         last_risky_diagnosis = None
-        if moderate_or_severe:
+        if moderate_or_severe: #가장 최근 진단 조회
             last_risky_diagnosis = max(
                 moderate_or_severe,
                 key=lambda d: d.diagnosed_at
             )
 
-        last_risky_date = (
+        last_risky_date = ( #날짜를 문자열로 변환
             last_risky_diagnosis.diagnosed_at.date().isoformat()
             if last_risky_diagnosis else None
         )
 
         other_diseases = []
-        for disease_name, count in disease_counter.most_common():
-            if top_disease and disease_name == top_disease["disease_name"]:
+        for disease_name, count in disease_counter.most_common(): #많이 발생한 병해 순으로 반복
+            if top_disease and disease_name == top_disease["disease_name"]: #top 1은 제외
                 continue
 
-            disease_diagnoses = [
+            disease_diagnoses = [ #특정 병해만 조회
                 d for d in moderate_or_severe
                 if d.disease_name == disease_name
             ]
 
-            latest = max(
+            latest = max( #특정 병해의 가장 최근 진단 이력 조회
                 disease_diagnoses,
                 key=lambda d: d.diagnosed_at
             )
@@ -1957,10 +2292,9 @@ def get_nearby_farm_risk_detail(
                 "count": count,
                 "last_occurred_date": latest.diagnosed_at.date().isoformat()
             })
-
-        # 최근 7일 일별 MODERATE + SEVERE 건수
-        daily_risky_counts = []
-        for i in range(7):
+#task----------------날짜별 병해 건수 유지할지 논의 후 수정---------------------
+        daily_risky_counts = [] 
+        for i in range(7): #날짜별 moderate+severe 건수
             day = (start_date + timedelta(days=i)).date()
 
             count = len([
@@ -2011,3 +2345,28 @@ def get_nearby_farm_risk_detail(
             "zones": zone_details
         }
     }
+
+@app.post("/users/fcm-token")
+def save_fcm_token(
+    request: schemas.FcmTokenRequest,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user)
+):
+    existing = db.query(models.UserFcmToken).filter(
+        models.UserFcmToken.fcm_token == request.fcm_token
+    ).first()
+
+    if existing:
+        existing.user_id = current_user.user_id
+        existing.platform = request.platform
+    else:
+        token = models.UserFcmToken(
+            user_id=current_user.user_id,
+            fcm_token=request.fcm_token,
+            platform=request.platform
+        )
+        db.add(token)
+
+    db.commit()
+
+    return {"success": True, "message": "FCM 토큰이 저장되었습니다."}

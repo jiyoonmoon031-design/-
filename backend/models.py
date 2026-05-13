@@ -1,6 +1,7 @@
 from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Float
 from sqlalchemy.sql import func
 from database import Base
+from datetime import datetime
 
 class User(Base):
     __tablename__ = "users" #users 테이블
@@ -18,6 +19,7 @@ class User(Base):
 class Farm(Base):
     __tablename__ = "farms"
 
+    farm_image_path = Column(String(255), nullable=True)
     farm_id = Column(Integer, primary_key=True, index=True, autoincrement=True)
     manager_user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
     farm_name = Column(String(100), nullable=False)
@@ -140,3 +142,13 @@ class TreatmentAlert(Base):
     responded_at = Column(DateTime(timezone=True), nullable=True)
 
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class UserFcmToken(Base):
+    __tablename__ = "user_fcm_tokens"
+
+    token_id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.user_id"), nullable=False)
+    fcm_token = Column(String(255), nullable=False, unique=True)
+    platform = Column(String(20), nullable=True)  # android, ios, web
+    created_at = Column(DateTime, default=datetime.now)
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)

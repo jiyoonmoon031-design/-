@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
+
 import 'mypage_screen.dart';
 import 'diagnosis_screen.dart';
 import 'diagnosis_history_screen.dart';
@@ -6,6 +8,8 @@ import 'dashboard_screen.dart';
 import 'farm_list_screen.dart';
 import 'share_consent_screen.dart';
 import 'nearby_farm_screen.dart';
+import 'alert_response_screen.dart';
+import 'alert_list_screen.dart';
 
 class ManagerHomeScreen extends StatefulWidget {
   const ManagerHomeScreen({super.key});
@@ -27,6 +31,48 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
     '농장 관리',
     '마이페이지',
   ];
+
+  @override
+  void initState() {
+    super.initState();
+    _setupFcmListeners();
+  }
+
+  Future<void> _setupFcmListeners() async {
+    final initialMessage =
+        await FirebaseMessaging.instance.getInitialMessage();
+
+    if (initialMessage != null) {
+      _handleTreatmentAlert(initialMessage);
+    }
+
+    FirebaseMessaging.onMessageOpenedApp.listen(
+      (RemoteMessage message) {
+        _handleTreatmentAlert(message);
+      },
+    );
+  }
+
+  void _handleTreatmentAlert(RemoteMessage message) {
+    final data = message.data;
+
+    if (data['type'] == 'TREATMENT_ALERT') {
+      final alertId = int.tryParse(data['alert_id'] ?? '');
+
+      if (alertId == null) {
+        return;
+      }
+
+      Navigator.push(
+        context,
+        MaterialPageRoute(
+          builder: (_) => AlertResponseScreen(
+            alertId: alertId,
+          ),
+        ),
+      );
+    }
+  }
 
   List<Widget> _buildScreens() {
     return [
@@ -50,6 +96,15 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
     });
   }
 
+  Future<void> _openAlertList() async {
+    await Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (_) => const AlertListScreen(),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final screens = _buildScreens();
@@ -58,6 +113,12 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
       appBar: AppBar(
         title: Text(_titles[_currentIndex]),
         centerTitle: true,
+        actions: [
+          IconButton(
+            icon: const Icon(Icons.notifications_none),
+            onPressed: _openAlertList,
+          ),
+        ],
       ),
       body: IndexedStack(
         index: _currentIndex,
@@ -125,7 +186,6 @@ class ManagerFarmMenuScreen extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 32),
-
             _FarmMenuCard(
               icon: Icons.business_outlined,
               title: '농장 등록',
@@ -139,9 +199,7 @@ class ManagerFarmMenuScreen extends StatelessWidget {
                 );
               },
             ),
-
             const SizedBox(height: 18),
-
             _FarmMenuCard(
               icon: Icons.share_outlined,
               title: '공유 동의',
@@ -155,15 +213,13 @@ class ManagerFarmMenuScreen extends StatelessWidget {
                 );
               },
             ),
-
             const SizedBox(height: 18),
-
             _FarmMenuCard(
               icon: Icons.location_on_outlined,
               title: '인근 농장 조회',
               subtitle: '주변 농장의 병해 정보를 확인하세요',
               onTap: () {
-                 Navigator.push(
+                Navigator.push(
                   context,
                   MaterialPageRoute(
                     builder: (_) => const NearbyFarmScreen(),
@@ -178,66 +234,6 @@ class ManagerFarmMenuScreen extends StatelessWidget {
   }
 }
 
-class _ManagerMenuCard extends StatelessWidget {
-  final IconData icon;
-  final String title;
-  final String subtitle;
-  final VoidCallback onTap;
-
-  const _ManagerMenuCard({
-    required this.icon,
-    required this.title,
-    required this.subtitle,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Material(
-      color: Colors.white,
-      borderRadius: BorderRadius.circular(18),
-      elevation: 2,
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(18),
-        child: Container(
-          padding: const EdgeInsets.all(18),
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: Colors.grey.shade200),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Icon(
-                icon,
-                size: 34,
-                color: Colors.green,
-              ),
-              const Spacer(),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.black54,
-                  height: 1.35,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ),
-    );
-  }
-}
 class _FarmMenuCard extends StatelessWidget {
   final IconData icon;
   final String title;
@@ -276,22 +272,33 @@ class _FarmMenuCard extends StatelessWidget {
                   color: Colors.green.shade50,
                   shape: BoxShape.circle,
                 ),
-                child: Icon(icon, size: 42, color: Color(0xFF6FAF7D)),
+                child: Icon(
+                  icon,
+                  size: 42,
+                  color: const Color(0xFF6FAF7D),
+                ),
               ),
               const SizedBox(width: 24),
               Expanded(
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(title,
-                        style: TextStyle(
-                            fontSize: 25, fontWeight: FontWeight.bold)),
+                    Text(
+                      title,
+                      style: const TextStyle(
+                        fontSize: 25,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                     const SizedBox(height: 10),
-                    Text(subtitle,
-                        style: TextStyle(
-                            fontSize: 18,
-                            color: Colors.blueGrey,
-                            height: 1.35)),
+                    Text(
+                      subtitle,
+                      style: const TextStyle(
+                        fontSize: 18,
+                        color: Colors.blueGrey,
+                        height: 1.35,
+                      ),
+                    ),
                   ],
                 ),
               ),
