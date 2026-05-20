@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
-
+import '../services/alert_service.dart';
 import 'mypage_screen.dart';
 import 'diagnosis_screen.dart';
 import 'diagnosis_history_screen.dart';
@@ -24,6 +24,8 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
   int _historyRefreshKey = 0;
   int _dashboardRefreshKey = 0;
 
+  int _unreadAlertCount = 0;
+
   final List<String> _titles = const [
     '진단하기',
     '진단 이력',
@@ -36,6 +38,7 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
   void initState() {
     super.initState();
     _setupFcmListeners();
+    _loadUnreadAlert();
   }
 
   Future<void> _setupFcmListeners() async {
@@ -44,15 +47,20 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
 
     if (initialMessage != null) {
       _handleTreatmentAlert(initialMessage);
+      _loadUnreadAlert();
     }
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      _loadUnreadAlert();
+    });
 
     FirebaseMessaging.onMessageOpenedApp.listen(
       (RemoteMessage message) {
         _handleTreatmentAlert(message);
+        _loadUnreadAlert();
       },
-    );
+    );  
   }
-
   void _handleTreatmentAlert(RemoteMessage message) {
     final data = message.data;
 
@@ -104,19 +112,77 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
       ),
     );
   }
+  Future<void> _loadUnreadAlert() async {
+    try {
+      final count = await AlertService.getUnreadAlertCount();
+
+      debugPrint('읽지 않은 알림 개수: $count');
+
+      if (!mounted) return;
+
+      setState(() {
+        _unreadAlertCount = count;
+      });
+    } catch (e) {
+      debugPrint('읽지 않은 알림 조회 실패: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final screens = _buildScreens();
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF6F8F6),
+
       appBar: AppBar(
         title: Text(_titles[_currentIndex]),
         centerTitle: true,
+        backgroundColor: const Color(0xFFF4FAF5),
+        foregroundColor: const Color(0xFF2F4F34),
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: _openAlertList,
+            onPressed: () async {
+              await _openAlertList();
+
+              if (!mounted) return;
+
+              await _loadUnreadAlert();
+            },
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_none),
+
+                if (_unreadAlertCount > 0)
+                  Positioned(
+                    right: -8,
+                    top: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      child: Text(
+                        _unreadAlertCount > 99 ? '99+' : '$_unreadAlertCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -128,10 +194,18 @@ class _ManagerHomeScreenState extends State<ManagerHomeScreen> {
         currentIndex: _currentIndex,
         onTap: _onTap,
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: Colors.green,
-        unselectedItemColor: Colors.grey,
+        backgroundColor: Colors.white,
+        selectedItemColor: const Color(0xFF6FAF7D),
+        unselectedItemColor: Colors.blueGrey.shade300,
         selectedFontSize: 12,
         unselectedFontSize: 12,
+        selectedLabelStyle: const TextStyle(
+          fontWeight: FontWeight.w700,
+        ),
+        unselectedLabelStyle: const TextStyle(
+          fontWeight: FontWeight.w500,
+        ),
+        elevation: 12,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.camera_alt_outlined),

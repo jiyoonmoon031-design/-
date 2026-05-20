@@ -170,76 +170,83 @@ class _AlertListScreenState extends State<AlertListScreen> {
             ),
           ],
         ),
-        child: Row(
+        child: Stack(
+          clipBehavior: Clip.none,
           children: [
-            Container(
-              width: 54,
-              height: 54,
-              decoration: BoxDecoration(
-                color: Colors.green.shade50,
-                borderRadius: BorderRadius.circular(16),
-              ),
-              child: Center(
-                child: Text(
-                  cropIcons[cropName] ?? '🌱',
-                  style: const TextStyle(fontSize: 28),
+            Row(
+              children: [
+                Container(
+                  width: 54,
+                  height: 54,
+                  decoration: BoxDecoration(
+                    color: Colors.green.shade50,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
+                  child: Center(
+                    child: Text(
+                      cropIcons[cropName] ?? '🌱',
+                      style: const TextStyle(fontSize: 28),
+                    ),
+                  ),
                 ),
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '$cropName | $diseaseName',
+                const SizedBox(width: 14),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        '$cropName | $diseaseName',
+                        style: const TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        '알림 시간: $scheduledAt',
+                        style: const TextStyle(
+                          color: Colors.black54,
+                          fontSize: 13,
+                        ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        '상태: ${statusLabel(alertStatus)}',
+                        style: const TextStyle(
+                          color: Colors.blueGrey,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 10),
+                Container(
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 7,
+                  ),
+                  decoration: BoxDecoration(
+                    color: severityColor(severity),
+                    borderRadius: BorderRadius.circular(18),
+                  ),
+                  child: Text(
+                    severityLabel(severity),
                     style: const TextStyle(
-                      fontSize: 18,
+                      color: Colors.white,
                       fontWeight: FontWeight.bold,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    '알림 시간: $scheduledAt',
-                    style: const TextStyle(
-                      color: Colors.black54,
-                      fontSize: 13,
+                      fontSize: 12,
                     ),
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    '상태: ${statusLabel(alertStatus)}',
-                    style: const TextStyle(
-                      color: Colors.blueGrey,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 10),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-              decoration: BoxDecoration(
-                color: severityColor(severity),
-                borderRadius: BorderRadius.circular(18),
-              ),
-              child: Text(
-                severityLabel(severity),
-                style: const TextStyle(
-                  color: Colors.white,
-                  fontWeight: FontWeight.bold,
-                  fontSize: 12,
                 ),
-              ),
+              ],
             ),
           ],
         ),
       ),
-    );
+    );  
   }
-
   @override
   Widget build(BuildContext context) {
     return Scaffold(

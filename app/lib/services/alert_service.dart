@@ -196,4 +196,20 @@ class AlertService {
       'message': data['detail'] ?? '알림 정보를 불러오지 못했습니다.',
     };
   }
+  static Future<int> getUnreadAlertCount() async {
+    final prefs = await SharedPreferences.getInstance();
+    final token = prefs.getString('access_token');
+
+    final response = await http.get(
+      Uri.parse('$baseUrl/alerts/unread-count'),
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': 'Bearer $token',
+      },
+    );
+
+    final data = jsonDecode(utf8.decode(response.bodyBytes));
+
+    return data['unread_count'] ?? 0;
+  }
 }

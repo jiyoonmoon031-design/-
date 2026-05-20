@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
+import 'package:kakao_flutter_sdk_user/kakao_flutter_sdk_user.dart';
+import 'package:google_sign_in/google_sign_in.dart';
 
 import '../services/auth_service.dart';
 import '../services/alert_service.dart';
@@ -7,6 +9,7 @@ import '../services/alert_service.dart';
 import 'signup_screen.dart';
 import 'general_home_screen.dart';
 import 'manager_home_screen.dart';
+import 'forgot_password_screen.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -110,6 +113,114 @@ class _LoginScreenState extends State<LoginScreen> {
     }
   }
 
+  bool _isKakaoLoggingIn = false;
+
+  Future<void> kakaoLogin() async {
+    if (_isKakaoLoggingIn) {
+      print("카카오 로그인 중복 실행 차단");
+      return;
+    }
+
+    _isKakaoLoggingIn = true;
+
+    try {
+      print("카카오 로그인 시작");
+
+      final token = await UserApi.instance.loginWithKakaoAccount(
+        prompts: [Prompt.login],
+      );
+
+      final user = await UserApi.instance.me();
+
+      print("카카오 사용자 정보 받음");
+      print("id: ${user.id}");
+      print("email: ${user.kakaoAccount?.email}");
+      print("nickname: ${user.kakaoAccount?.profile?.nickname}");
+      final result = await AuthService.socialLogin(
+        provider: "KAKAO",
+        token: token.accessToken,
+        userRole: "GENERAL_USER",
+      );
+
+
+      if (result['success'] == true) {
+        final userRole = result['user']['user_role'];
+
+        await saveFcmTokenAfterLogin();
+
+        if (!mounted) return;
+
+        if (userRole == 'GENERAL_USER') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const GeneralHomeScreen(),
+            ),
+          );
+        } else if (userRole == 'FARM_MANAGER') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ManagerHomeScreen(),
+            ),
+          );
+        } 
+      }
+    } catch (e) {
+      print("카카오 로그인 실패: $e");
+
+    } finally {
+      _isKakaoLoggingIn = false;
+    }
+  }
+  Future<void> googleLogin() async {
+    try {
+      final GoogleSignInAccount? googleUser =
+          await GoogleSignIn().signIn();
+
+      if (googleUser == null) return;
+
+      final GoogleSignInAuthentication googleAuth =
+          await googleUser.authentication;
+
+      print("구글 로그인 성공");
+      print("accessToken: ${googleAuth.accessToken}");
+
+      final result = await AuthService.socialLogin(
+        provider: "GOOGLE",
+        token: googleAuth.accessToken!,
+        userRole: "GENERAL_USER",
+      );
+
+      print(result);
+
+      if (result['success'] == true) {
+        final userRole = result['user']['user_role'];
+
+        await saveFcmTokenAfterLogin();
+
+        if (!mounted) return;
+
+        if (userRole == 'GENERAL_USER') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const GeneralHomeScreen(),
+            ),
+          );
+        } else {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const ManagerHomeScreen(),
+            ),
+          );
+        }
+      }
+    } catch (e) {
+      print("구글 로그인 실패: $e");
+    }
+  }
   InputDecoration buildInputDecoration({
     required String label,
     required IconData icon,
@@ -256,6 +367,81 @@ class _LoginScreenState extends State<LoginScreen> {
                             ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    height: 50,
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: isLoading ? null : kakaoLogin,
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFFEE500),
+                        foregroundColor: Colors.black,
+                        elevation: 0,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Image.asset(
+                            'assets/images/kakao.png',
+                            width: 22,
+                            height: 22,
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            '카카오로 로그인',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(height: 12),
+
+                  SizedBox(
+                    height: 50,
+                    width: double.infinity,
+                    child: OutlinedButton(
+                      onPressed: isLoading ? null : googleLogin,
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: Colors.white,
+                        foregroundColor: Colors.black87,
+                        elevation: 0,
+                        side: BorderSide(
+                          color: Colors.grey.shade300,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Image.network(
+                            'https://developers.google.com/identity/images/g-logo.png',
+                            width: 20,
+                            height: 20,
+                          ),
+                          const SizedBox(width: 10),
+                          const Text(
+                            'Google로 시작하기',
+                            style: TextStyle(
+                              fontSize: 16,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
                   const SizedBox(height: 14),
                   Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -276,25 +462,19 @@ class _LoginScreenState extends State<LoginScreen> {
                           style: TextStyle(color: mainGreen),
                         ),
                       ),
+                
                       const Text('|', style: TextStyle(color: Colors.black38)),
                       TextButton(
                         onPressed: isLoading
-                            ? null
-                            : () {
-                                // TODO: 아이디 찾기 화면/기능 연결 예정
-                              },
-                        child: Text(
-                          '아이디 찾기',
-                          style: TextStyle(color: mainGreen),
-                        ),
-                      ),
-                      const Text('|', style: TextStyle(color: Colors.black38)),
-                      TextButton(
-                        onPressed: isLoading
-                            ? null
-                            : () {
-                                // TODO: 비밀번호 찾기 화면/기능 연결 예정
-                              },
+                        ? null
+                        : () {
+                            Navigator.push(
+                              context,
+                              MaterialPageRoute(
+                                builder: (_) => const ForgotPasswordScreen(),
+                              ),
+                            );
+                          },
                         child: Text(
                           '비밀번호 찾기',
                           style: TextStyle(color: mainGreen),

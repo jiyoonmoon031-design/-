@@ -63,13 +63,21 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
   String _severityLabel(String? value) {
     switch (value) {
       case 'HEALTHY':
+      case '정상':
         return '정상';
+
       case 'MILD':
+      case '경미':
         return '경미';
+
       case 'MODERATE':
+      case '중간':
         return '중간';
+
       case 'SEVERE':
+      case '심각':
         return '심각';
+
       default:
         return value ?? '-';
     }
@@ -78,13 +86,21 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
   Color _severityColor(String? value) {
     switch (value) {
       case 'HEALTHY':
+      case '정상':
         return Colors.green;
+
       case 'MILD':
-        return Colors.orange;
+      case '경미':
+        return Colors.yellow.shade700;
+
       case 'MODERATE':
-        return Colors.deepOrange;
+      case '중간':
+        return const Color(0xFFFF9800);
+
       case 'SEVERE':
+      case '심각':
         return Colors.red;
+
       default:
         return Colors.grey;
     }
@@ -128,7 +144,7 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
 
   String _formatConfidence(dynamic value) {
     if (value is num) {
-      return '${(value * 100).toStringAsFixed(1)}%';
+      return '${(value).toStringAsFixed(1)}%';
     }
     return '-';
   }
@@ -148,9 +164,9 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
       return rawDate;
     }
   }
+  String? _overlayImageUrl() {
+    final path = detailData?['overlay_path'] ?? detailData?['overlay_url'];
 
-  String? _imageUrl() {
-    final path = detailData?['original_image_path'];
     if (path == null) return null;
 
     final pathText = path.toString().replaceAll('\\', '/');
@@ -162,6 +178,22 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
     return '$baseUrl/$pathText';
   }
 
+  String? _gradcamImageUrl() {
+    final path =
+        detailData?['gradcam_path'] ??
+        detailData?['gradcam_url'] ??
+        detailData?['gradcamUrl'];
+
+    if (path == null) return null;
+
+    final pathText = path.toString().replaceAll('\\', '/');
+
+    if (pathText.startsWith('http')) {
+      return pathText;
+    }
+
+    return '$baseUrl/$pathText';
+  }
   BoxDecoration _cardDecoration() {
     return BoxDecoration(
       color: Colors.white,
@@ -350,10 +382,7 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
     );
   }
 
-  Widget _buildImageWithBoundingBoxes() {
-    final imageUrl = _imageUrl();
-    final detections = (detailData?['detections'] as List?) ?? [];
-
+  Widget _buildImageCard(String? imageUrl) {
     if (imageUrl == null) {
       return Container(
         width: double.infinity,
@@ -370,96 +399,27 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
       );
     }
 
-    final originalWidth =
-        (detailData?['image_width'] as num?)?.toDouble() ?? 640;
-    final originalHeight =
-        (detailData?['image_height'] as num?)?.toDouble() ?? 640;
-
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        LayoutBuilder(
-          builder: (context, constraints) {
-            final displayWidth = constraints.maxWidth;
-            final displayHeight =
-                displayWidth * (originalHeight / originalWidth);
-
-            final scaleX = displayWidth / originalWidth;
-            final scaleY = displayHeight / originalHeight;
-
-            return ClipRRect(
-              borderRadius: BorderRadius.circular(20),
-              child: SizedBox(
-                width: displayWidth,
-                height: displayHeight,
-                child: Stack(
-                  children: [
-                    Image.network(
-                      imageUrl,
-                      width: displayWidth,
-                      height: displayHeight,
-                      fit: BoxFit.fill,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
-                          color: Colors.grey.shade100,
-                          alignment: Alignment.center,
-                          padding: const EdgeInsets.all(16),
-                          child: const Text(
-                            '이미지를 불러오지 못했습니다.',
-                            textAlign: TextAlign.center,
-                            style: TextStyle(color: Colors.black54),
-                          ),
-                        );
-                      },
-                    ),
-                    ...detections.map((det) {
-                      final x1 = (det['bbox_xmin'] as num?)?.toDouble() ?? 0;
-                      final y1 = (det['bbox_ymin'] as num?)?.toDouble() ?? 0;
-                      final x2 = (det['bbox_xmax'] as num?)?.toDouble() ?? 0;
-                      final y2 = (det['bbox_ymax'] as num?)?.toDouble() ?? 0;
-
-                      return Positioned(
-                        left: x1 * scaleX,
-                        top: y1 * scaleY,
-                        width: (x2 - x1) * scaleX,
-                        height: (y2 - y1) * scaleY,
-                        child: Container(
-                          decoration: BoxDecoration(
-                            border: Border.all(
-                              color: Colors.red,
-                              width: 3,
-                            ),
-                          ),
-                        ),
-                      );
-                    }).toList(),
-                  ],
-                ),
-              ),
-            );
-          },
-        ),
-        if (detections.isEmpty) ...[
-          const SizedBox(height: 12),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(14),
-            decoration: BoxDecoration(
-              color: Colors.orange.shade50,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.orange.shade200),
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: Image.network(
+        imageUrl,
+        width: double.infinity,
+        height: 260,
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) {
+          return Container(
+            height: 220,
+            color: Colors.grey.shade100,
+            alignment: Alignment.center,
+            padding: const EdgeInsets.all(16),
+            child: const Text(
+              '이미지를 불러오지 못했습니다.',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.black54),
             ),
-            child: Text(
-              '탐지된 병변 위치가 없습니다. 분류 결과는 확인되었지만 bbox는 검출되지 않았습니다.',
-              style: TextStyle(
-                color: Colors.orange.shade900,
-                fontSize: 13,
-                height: 1.4,
-              ),
-            ),
-          ),
-        ],
-      ],
+          );
+        },
+      ),
     );
   }
 
@@ -483,25 +443,7 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
     );
   }
 
-  Widget _buildGradcamPath() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.grey.shade50,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: Colors.grey.shade200),
-      ),
-      child: Text(
-        '${detailData?['gradcam_path'] ?? '없음'}',
-        style: const TextStyle(
-          fontSize: 13,
-          color: Colors.black54,
-          height: 1.4,
-        ),
-      ),
-    );
-  }
+
 
   Widget _buildErrorState() {
     return Container(
@@ -584,14 +526,6 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
             children: [
               _buildSummaryCard(),
               const SizedBox(height: 16),
-
-              _buildSectionCard(
-                title: '병변 위치 이미지',
-                icon: Icons.crop_free_outlined,
-                child: _buildImageWithBoundingBoxes(),
-              ),
-              const SizedBox(height: 16),
-
               _buildSectionCard(
                 title: '기본 정보',
                 icon: Icons.description_outlined,
@@ -608,10 +542,6 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
                     _buildInfoTile(
                       label: '병해명',
                       value: '${detailData!['disease_name'] ?? '-'}',
-                    ),
-                    _buildInfoTile(
-                      label: '클래스명',
-                      value: '${detailData!['class_name'] ?? '-'}',
                     ),
                     _buildInfoTile(
                       label: '진단 시각',
@@ -635,18 +565,26 @@ class _DiagnosisDetailScreenState extends State<DiagnosisDetailScreen> {
               const SizedBox(height: 16),
 
               _buildSectionCard(
+                title: '병변 탐지 결과',
+                icon: Icons.crop_free_outlined,
+                child: _buildImageCard(_overlayImageUrl()),
+              ),
+              const SizedBox(height: 16),
+
+              _buildSectionCard(
+                title: 'Grad-CAM 분석',
+                icon: Icons.local_fire_department_outlined,
+                child: _buildImageCard(_gradcamImageUrl()),
+              ),
+              const SizedBox(height: 16),
+
+              _buildSectionCard(
                 title: '추천 조치',
                 icon: Icons.medical_services_outlined,
                 child: _buildRecommendationText(),
               ),
               const SizedBox(height: 16),
 
-              _buildSectionCard(
-                title: 'Grad-CAM 경로',
-                icon: Icons.image_search_outlined,
-                child: _buildGradcamPath(),
-              ),
-              const SizedBox(height: 20),
             ],
           ),
         ),

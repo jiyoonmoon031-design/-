@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Float
+from sqlalchemy import Column, Integer, String, DateTime, ForeignKey, Boolean, Float, Date
 from sqlalchemy.sql import func
 from database import Base
 from datetime import datetime
@@ -14,6 +14,10 @@ class User(Base):
     account_status = Column(String(20), nullable=False, default="ACTIVE") #계정 상태
     created_at = Column(DateTime(timezone=True), server_default=func.now()) #생성 시간
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now()) #수정 시간
+    notification_enabled = Column(Boolean, nullable=False, default=True)
+    provider = Column(String(20), nullable=True)      # KAKAO, GOOGLE
+    provider_id = Column(String(255), nullable=True)  # 소셜 계정 고유 ID
+    kakao_id = Column(String(50), unique=True, nullable=True)
 
 
 class Farm(Base):
@@ -67,17 +71,16 @@ class Diagnosis(Base):
     crop_name = Column(String(100), nullable=False)
     part_name = Column(String(50), nullable=False)
     disease_name = Column(String(100), nullable=False)
-    class_name = Column(String(150), nullable=False)
 
     has_disease = Column(Boolean, nullable=False)
     confidence_score = Column(Float, nullable=False)
+    severity_score = Column(Float, nullable=True)
     severity_level = Column(String(20), nullable=False)
 
     recommendation_text = Column(String(1000), nullable=True)
-    low_confidence_flag = Column(Boolean, nullable=False, default=False)
-    retake_recommended_flag = Column(Boolean, nullable=False, default=False)
     action_status = Column(String(20), nullable=False, default="PENDING")
     gradcam_path = Column(String(255), nullable=True)
+    overlay_path = Column(String(255), nullable=True)
 
     diagnosed_at = Column(DateTime(timezone=True), server_default=func.now())
 
@@ -152,3 +155,33 @@ class UserFcmToken(Base):
     platform = Column(String(20), nullable=True)  # android, ios, web
     created_at = Column(DateTime, default=datetime.now)
     updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
+class NearbyDiseaseAlertLog(Base):
+    __tablename__ = "nearby_disease_alert_logs"
+
+    nearby_alert_id = Column(Integer, primary_key=True, index=True)
+
+    receiver_user_id = Column(Integer, nullable=False)
+    base_farm_id = Column(Integer, nullable=False)
+
+    source_farm_id = Column(Integer, nullable=False)
+    source_zone_id = Column(Integer, nullable=True)
+    diagnosis_id = Column(Integer, nullable=False)
+
+    disease_name = Column(String(100), nullable=False)
+    alert_date = Column(Date, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+class PasswordResetCode(Base):
+    __tablename__ = "password_reset_codes"
+
+    id = Column(Integer, primary_key=True, index=True)
+
+    email = Column(String(255), nullable=False)
+
+    code = Column(String(10), nullable=False)
+
+    expires_at = Column(DateTime, nullable=False)
+
+    created_at = Column(DateTime(timezone=True), server_default=func.now())

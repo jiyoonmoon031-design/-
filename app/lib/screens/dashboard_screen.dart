@@ -175,9 +175,9 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
   String _percentFromSeverity(dynamic value) {
     if (value is num) {
-      return '${((value / 3) * 100).round()}%';
+      return value.toStringAsFixed(2);
     }
-    return '0%';
+    return '0.00';
   }
 
   String _rate(dynamic value) {
@@ -188,9 +188,10 @@ class _DashboardScreenState extends State<DashboardScreen> {
   }
 
   Color _severityColor(dynamic value) {
-    final percent = value is num ? ((value / 3) * 100).round() : 0;
-    if (percent >= 75) return Colors.red;
-    if (percent >= 60) return Colors.deepOrange;
+    final score = value is num ? value.toDouble() : 0;
+    if (score >= 0.75) return Colors.red;
+    if (score >= 0.45) return const Color(0xFFFF9800);
+
     return mainGreen;
   }
 
@@ -461,7 +462,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
             '-';
 
         final title = userRole == 'FARM_MANAGER'
-            ? '$farmName\n$zoneName · $zoneCropName'
+            ? '$zoneName · $zoneCropName'
             : cropName;
 
         return InkWell(
@@ -696,12 +697,20 @@ class _DashboardScreenState extends State<DashboardScreen> {
 
         if (dateIndex == -1) continue;
 
-        final score = daily[j]['average_severity'] ?? 0;
+        final rawScore = daily[j]['average_severity'];
+
+        double score = 0;
+
+        if (rawScore is num) {
+          score = rawScore.toDouble();
+        }
+
+        score = score.clamp(0.0, 100.0);
 
         spots.add(
           FlSpot(
             dateIndex.toDouble(),
-            ((score as num) * 10).toDouble(),
+            score,
           ),
         );
       }
@@ -741,7 +750,7 @@ class _DashboardScreenState extends State<DashboardScreen> {
               minX: 0,
               maxX: (dateList.length - 1).toDouble(),
               minY: 0,
-              maxY: 30,
+              maxY: 100,
               gridData: const FlGridData(show: true),
               borderData: FlBorderData(show: false),
               titlesData: FlTitlesData(

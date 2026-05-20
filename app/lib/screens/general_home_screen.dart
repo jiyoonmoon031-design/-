@@ -7,6 +7,7 @@ import 'diagnosis_history_screen.dart';
 import 'dashboard_screen.dart';
 import 'alert_response_screen.dart';
 import 'alert_list_screen.dart';
+import '../services/alert_service.dart';
 
 class GeneralHomeScreen extends StatefulWidget {
   const GeneralHomeScreen({super.key});
@@ -21,6 +22,8 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
   int _historyRefreshKey = 0;
   int _dashboardRefreshKey = 0;
 
+  int _unreadAlertCount = 0;
+  
   final List<String> _titles = const [
     '진단하기',
     '기록',
@@ -32,6 +35,7 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
   void initState() {
     super.initState();
     _setupFcmListeners();
+    _loadUnreadAlert();
   }
 
   Future<void> _setupFcmListeners() async {
@@ -40,13 +44,19 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
 
     if (initialMessage != null) {
       _handleTreatmentAlert(initialMessage);
+      _loadUnreadAlert();
     }
+
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      _loadUnreadAlert();
+    });
 
     FirebaseMessaging.onMessageOpenedApp.listen(
       (RemoteMessage message) {
         _handleTreatmentAlert(message);
+        _loadUnreadAlert();
       },
-    );
+    );  
   }
 
   void _handleTreatmentAlert(RemoteMessage message) {
@@ -99,19 +109,84 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
       ),
     );
   }
+  Future<void> _loadUnreadAlert() async {
+    try {
+      final count = await AlertService.getUnreadAlertCount();
+
+      if (!mounted) return;
+
+      setState(() {
+        _unreadAlertCount = count;
+      });
+    } catch (e) {
+      debugPrint('읽지 않은 알림 조회 실패: $e');
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     final screens = _buildScreens();
 
     return Scaffold(
+      backgroundColor: const Color(0xFFF6F8F6),
       appBar: AppBar(
         title: Text(_titles[_currentIndex]),
         centerTitle: true,
+
+        backgroundColor: const Color(0xFFF4FAF5),
+        foregroundColor: const Color(0xFF2F4F34),
+
+        elevation: 0,
+        surfaceTintColor: Colors.transparent,
+
+        titleTextStyle: const TextStyle(
+          fontSize: 21,
+          fontWeight: FontWeight.w700,
+          color: Color(0xFF2F4F34),
+        ),
         actions: [
           IconButton(
-            icon: const Icon(Icons.notifications_none),
-            onPressed: _openAlertList,
+            onPressed: () async {
+              await _openAlertList();
+
+              if (!mounted) return;
+
+              await _loadUnreadAlert();
+            },
+            icon: Stack(
+              clipBehavior: Clip.none,
+              children: [
+                const Icon(Icons.notifications_none),
+
+                if (_unreadAlertCount > 0)
+                  Positioned(
+                    right: -8,
+                    top: -8,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: Colors.red,
+                        borderRadius: BorderRadius.circular(10),
+                      ),
+                      constraints: const BoxConstraints(
+                        minWidth: 18,
+                        minHeight: 18,
+                      ),
+                      child: Text(
+                        _unreadAlertCount > 99
+                            ? '99+'
+                            : '$_unreadAlertCount',
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontSize: 10,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
           ),
         ],
       ),
@@ -123,10 +198,26 @@ class _GeneralHomeScreenState extends State<GeneralHomeScreen> {
         currentIndex: _currentIndex,
         onTap: _onTap,
         type: BottomNavigationBarType.fixed,
-        selectedItemColor: Colors.green,
-        unselectedItemColor: Colors.grey,
+
+        backgroundColor: Colors.white,
+
+        selectedItemColor: const Color(0xFF6FAF7D),
+        unselectedItemColor: Colors.blueGrey.shade300,
+
         selectedFontSize: 12,
         unselectedFontSize: 12,
+
+        selectedLabelStyle: const TextStyle(
+          fontWeight: FontWeight.w700,
+        ),
+
+        unselectedLabelStyle: const TextStyle(
+          fontWeight: FontWeight.w500,
+        ),
+
+        showUnselectedLabels: true,
+
+        elevation: 12,
         items: const [
           BottomNavigationBarItem(
             icon: Icon(Icons.camera_alt_outlined),

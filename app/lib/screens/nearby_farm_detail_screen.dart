@@ -101,12 +101,6 @@ class _NearbyFarmDetailScreenState extends State<NearbyFarmDetailScreen> {
   Widget _buildFarmHeader() {
     if (farm == null) return const SizedBox.shrink();
 
-    final cropSet = zones
-        .map((z) => z['crop_name'])
-        .where((name) => name != null && name.toString().isNotEmpty)
-        .toSet()
-        .toList();
-
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(22),
@@ -150,21 +144,6 @@ class _NearbyFarmDetailScreenState extends State<NearbyFarmDetailScreen> {
                   style: const TextStyle(
                     color: Colors.blueGrey,
                     fontSize: 15,
-                  ),
-                ),
-                const SizedBox(height: 12),
-                Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.grey.shade100,
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  child: Text(
-                    cropSet.isEmpty
-                        ? '대표 작물: 정보 없음'
-                        : '대표 작물: ${cropSet.join(", ")}',
-                    style: const TextStyle(fontSize: 14),
                   ),
                 ),
               ],
@@ -224,7 +203,7 @@ class _NearbyFarmDetailScreenState extends State<NearbyFarmDetailScreen> {
               crossAxisCount: 2,
               mainAxisSpacing: 14,
               crossAxisSpacing: 14,
-              childAspectRatio: 1.35,
+              childAspectRatio: 1.05,
             ),
             itemBuilder: (context, index) {
               final zone = (zones[index] as Map).cast<String, dynamic>();
@@ -253,7 +232,7 @@ class _NearbyFarmDetailScreenState extends State<NearbyFarmDetailScreen> {
       borderRadius: BorderRadius.circular(20),
       onTap: () => _showZoneDetailBottomSheet(zone),
       child: Container(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
           color: Colors.white,
           border: Border.all(color: Colors.grey.shade300, width: 1.5),
@@ -263,11 +242,14 @@ class _NearbyFarmDetailScreenState extends State<NearbyFarmDetailScreen> {
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
             Text(
-              zone['zone_name_or_code'] ?? '구역',
+              '${zone['zone_name_or_code'] ?? '구역'} | ${zone['crop_name'] ?? '작물 정보 없음'}',
               style: const TextStyle(
-                fontSize: 18,
+                fontSize: 17,
                 fontWeight: FontWeight.bold,
               ),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
             ),
             const SizedBox(height: 12),
             Row(

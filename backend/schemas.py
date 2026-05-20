@@ -33,6 +33,19 @@ class UserMeResponse(BaseModel):
     name: str
     user_role: str
     account_status: str
+    notification_enabled: bool
+
+class UpdateUserInfoRequest(BaseModel):
+    name: str
+
+
+class UpdatePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str
+
+
+class UpdateNotificationRequest(BaseModel):
+    notification_enabled: bool
 
 class UpdateRoleRequest(BaseModel):
     user_role: str
@@ -113,18 +126,14 @@ class DiagnosisResponse(BaseModel):
     crop_name: str
     part_name: str
     disease_name: str
-    class_name: str
     has_disease: bool
     confidence_score: float
     severity_level: str
+    severity_score: Optional[float] = None
     recommendation_text: Optional[str]
-    low_confidence_flag: bool
-    retake_recommended_flag: bool
-    gradcam_path: Optional[str]
-    detections: List[DetectionBoxResponse]
+    gradcam_path: Optional[str] = None
+    overlay_path: Optional[str] = None
     original_image_path: Optional[str] = None
-    image_width: Optional[int] = None
-    image_height: Optional[int] = None
 
 class DiagnosisUploadResponse(BaseModel):
     success: bool
@@ -284,6 +293,7 @@ class NearbyFarmItem(BaseModel):
     public_region_label: str | None = None
     share_consent_level: str
     crop_names: list[str]
+    farm_image_path: str | None = None
 
 
 class NearbyFarmsData(BaseModel):
@@ -358,3 +368,27 @@ class NearbyFarmRiskDetailResponse(BaseModel):
 class FcmTokenRequest(BaseModel):
     fcm_token: str
     platform: str | None = None
+
+class KakaoLoginRequest(BaseModel):
+    provider_id: str
+    email: str | None = None
+    name: str | None = None
+    user_role: str = "GENERAL_USER"
+
+class SocialLoginRequest(BaseModel):
+    provider: str
+    token: str
+    user_role: str
+
+class SendResetCodeRequest(BaseModel):
+    email: EmailStr
+
+
+class VerifyResetCodeRequest(BaseModel):
+    email: EmailStr
+    code: str
+
+class ResetPasswordRequest(BaseModel):
+    email: EmailStr
+    code: str
+    new_password: str
